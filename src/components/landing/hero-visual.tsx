@@ -42,7 +42,8 @@ export function HeroVisual() {
   const mascotY = useTransform(scrollY, [0, 700], [0, -60]);
 
   return (
-    <div className="relative mx-auto h-[26rem] w-full max-w-md sm:h-[31rem]">
+    <div className="mx-auto w-full max-w-md">
+    <div className="relative h-[26rem] w-full sm:h-[31rem]">
       <motion.div
         aria-hidden
         className="absolute left-1/2 top-1/2 -ml-36 -mt-36 h-72 w-72 rounded-full bg-saffron sm:-ml-40 sm:-mt-40 sm:h-80 sm:w-80"
@@ -72,8 +73,10 @@ export function HeroVisual() {
           </div>
         </motion.div>
       </motion.div>
+      {/* Speech bubble: beside the mascot from sm up; on small phones it sits below the
+          illustration (see the sm:hidden copy after this block) so it never covers a pack. */}
       <motion.div
-        className="absolute right-0 top-[40%] max-w-[12.5rem] sm:-right-8"
+        className="absolute right-0 top-[40%] hidden max-w-[12.5rem] sm:-right-8 sm:block"
         initial={reduce ? false : { opacity: 0, scale: 0.6, rotate: -6 }}
         animate={{ opacity: 1, scale: 1, rotate: 0 }}
         transition={{ type: "spring", stiffness: 200, damping: 14, delay: 0.9 }}
@@ -82,6 +85,17 @@ export function HeroVisual() {
           Vanakkam! Let me show you how breakfast got easy.
         </SpeechBubble>
       </motion.div>
+    </div>
+    <motion.div
+      className="relative z-10 mx-auto -mt-2 w-fit max-w-[16rem] sm:hidden"
+      initial={reduce ? false : { opacity: 0, y: -10, scale: 0.8 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 200, damping: 14, delay: 0.9 }}
+    >
+      <SpeechBubble tail="top" className="text-center text-base">
+        Vanakkam! Let me show you how breakfast got easy.
+      </SpeechBubble>
+    </motion.div>
     </div>
   );
 }

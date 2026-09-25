@@ -45,7 +45,7 @@ export function SpeechBubble({
 }: {
   children: React.ReactNode;
   className?: string;
-  tail?: "left" | "right" | "bottom";
+  tail?: "left" | "right" | "bottom" | "top";
 }) {
   return (
     <div
@@ -62,6 +62,7 @@ export function SpeechBubble({
           tail === "left" && "-left-[9px] top-1/2 -translate-y-1/2 border-b-2 border-l-2",
           tail === "right" && "-right-[9px] top-1/2 -translate-y-1/2 border-r-2 border-t-2",
           tail === "bottom" && "-bottom-[9px] left-10 border-b-2 border-r-2",
+          tail === "top" && "-top-[9px] left-1/2 -ml-2 border-l-2 border-t-2",
         )}
       />
     </div>

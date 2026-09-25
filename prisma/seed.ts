@@ -70,6 +70,7 @@ type ProductSeed = {
   poster: string;
   flavours: Flavour[];
   descriptionEn: string;
+  tags: string[]; // storefront filters: millet | greens | traditional
 };
 
 const products: ProductSeed[] = [
@@ -81,6 +82,7 @@ const products: ProductSeed[] = [
     nameTa: "ரவா தோசை மிக்ஸ்",
     familyColor: "#2E7D32", // green poster
     poster: "/images/posters/rava-dosa-mix-green.jpg",
+    tags: ["greens"],
     flavours: [F.MULTI_GRAIN, F.MUDAKATHAN, F.MURUNGA, F.MANATHAKKALI, F.THAKKALI, F.ABC],
     descriptionEn: "Instant rava dosa mix in six flavours. Natural, no preservative, no added colors.",
   },
@@ -92,6 +94,7 @@ const products: ProductSeed[] = [
     nameTa: "அடை மிக்ஸ்",
     familyColor: "#6A1B9A", // purple poster
     poster: "/images/posters/adai-mix-purple.jpg",
+    tags: ["greens"],
     flavours: [F.MUDAKATHAN, F.MURUNGA, F.MANATHAKKALI, F.THAKKALI, F.ABC],
     descriptionEn: "Instant adai mix in five flavours. Natural, no preservative, no added colors.",
   },
@@ -103,6 +106,7 @@ const products: ProductSeed[] = [
     nameTa: "பொங்கல் மிக்ஸ்",
     familyColor: "#1565C0", // blue poster
     poster: "/images/posters/pongal-mix-blue.jpg",
+    tags: ["millet"],
     flavours: [F.KUTHIRAIVALI, F.VARAGU, F.THINAI, F.MULTI_GRAIN_RAVA],
     descriptionEn: "Instant millet pongal mix. Natural, no preservative, no added colors.",
   },
@@ -114,6 +118,7 @@ const products: ProductSeed[] = [
     nameTa: "புளுசு அடை",
     familyColor: "#00838F", // teal poster
     poster: "/images/posters/paarambariyam-pulusu-adai-teal.jpg",
+    tags: ["traditional"],
     flavours: [F.CLASSIC],
     descriptionEn: "Traditional Pulusu Adai from our Paarambariyam range.",
   },
@@ -125,6 +130,7 @@ const products: ProductSeed[] = [
     nameTa: "செக்க",
     familyColor: "#C62828", // red poster
     poster: "/images/posters/paarambariyam-chekka-red.jpg",
+    tags: ["traditional"],
     flavours: [F.CLASSIC],
     descriptionEn: "Traditional Chekka from our Paarambariyam range.",
   },
@@ -136,6 +142,7 @@ const products: ProductSeed[] = [
     nameTa: "புளுசு வடை",
     familyColor: "#C2185B", // pink poster
     poster: "/images/posters/paarambariyam-pulusu-vadai-pink.jpg",
+    tags: ["traditional"],
     flavours: [F.CLASSIC],
     descriptionEn: "Traditional Pulusu Vadai from our Paarambariyam range.",
   },
@@ -162,6 +169,7 @@ async function seedCatalogue() {
       descriptionEn: p.descriptionEn,
       familyColor: p.familyColor,
       claims: CLAIMS,
+      tags: p.tags,
       sortOrder: pIndex + 1,
       isActive: true,
       isFeatured: pIndex < 3,

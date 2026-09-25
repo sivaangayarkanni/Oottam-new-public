@@ -162,6 +162,8 @@ model Product {
   /// Nutrition facts per 100g – null until real lab values are supplied. Never invent.
   nutrition      Json?
   claims         String[] @default([]) // e.g. ["Natural", "No Preservative", "No Added Colors"]
+  /// Storefront filter tags, lower-case slugs: "millet", "greens", "traditional"
+  tags           String[] @default([])
   isActive       Boolean  @default(true)
   isFeatured     Boolean  @default(false)
   sortOrder      Int      @default(0)
@@ -178,6 +180,7 @@ model Product {
   @@index([categoryId])
   @@index([isActive, sortOrder])
   @@index([isFeatured])
+  @@index([tags], type: Gin)
 }
 
 model ProductImage {

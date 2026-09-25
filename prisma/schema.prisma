@@ -95,6 +95,7 @@ model User {
   orders    Order[]
   reviews   Review[]
   auditLogs AuditLog[] @relation("AuditActor")
+  sessions  Session[]
 
   @@index([role])
   @@index([createdAt])
@@ -263,11 +264,15 @@ model CartItem {
 // ─────────────────────────────── Orders ───────────────────────────────
 
 model Order {
-  id            String        @id @default(cuid())
-  orderNumber   String        @unique // human friendly, e.g. OTM-2026-000123
-  userId        String? // null for guest orders
-  status        OrderStatus   @default(PENDING)
-  paymentMethod PaymentMethod @default(RAZORPAY)
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique // human friendly, e.g. OTM-2026-000123
+  /// Client-generated key so a double-submitted checkout creates only one order
+  idempotencyKey  String?       @unique
+  /// Set when reserved stock was returned (e.g. unpaid PENDING order timed out)
+  stockReleasedAt DateTime?
+  userId          String? // null for guest orders
+  status          OrderStatus   @default(PENDING)
+  paymentMethod   PaymentMethod @default(RAZORPAY)
 
   // Contact (captured for guests too)
   customerName  String
@@ -309,6 +314,7 @@ model Order {
   @@index([status, createdAt])
   @@index([customerPhone])
   @@index([createdAt])
+  @@index([status, stockReleasedAt, placedAt])
 }
 
 model OrderItem {
@@ -464,5 +470,23 @@ model OtpCode {
   createdAt   DateTime   @default(now())
 
   @@index([phone, purpose, createdAt])
+  @@index([expiresAt])
+}
+
+/// DB-backed login sessions (revocable). The cookie holds a random token; only its SHA-256 hash is stored.
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  lastUsedAt DateTime  @default(now())
+  revokedAt  DateTime?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
   @@index([expiresAt])
 }

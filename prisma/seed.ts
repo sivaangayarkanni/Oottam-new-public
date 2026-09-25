@@ -11,7 +11,7 @@
  */
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient, Role } from "../src/generated/prisma/client";
+import { CouponType, PrismaClient, Role } from "../src/generated/prisma/client";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
@@ -241,12 +241,46 @@ async function seedOwner() {
   return user;
 }
 
+// ── SAMPLE coupons for testing checkout. Edit or deactivate (isActive=false) before launch. ──
+const SAMPLE_COUPONS = [
+  {
+    code: "WELCOME10",
+    description: "[SAMPLE] 10% off your first order, up to ₹50. Test coupon, review before launch.",
+    type: CouponType.PERCENT,
+    value: 10,
+    maxDiscountInPaise: 5000,
+    minOrderInPaise: 19900,
+    perUserLimit: 1,
+    usageLimit: 1000,
+  },
+  {
+    code: "FLAT50",
+    description: "[SAMPLE] ₹50 off orders of ₹499 or more. Test coupon, review before launch.",
+    type: CouponType.FLAT,
+    value: 5000,
+    maxDiscountInPaise: null,
+    minOrderInPaise: 49900,
+    perUserLimit: null,
+    usageLimit: 500,
+  },
+];
+
+async function seedCoupons() {
+  for (const c of SAMPLE_COUPONS) {
+    // Only create; never overwrite usage counters or owner edits on re-seed.
+    await prisma.coupon.upsert({ where: { code: c.code }, update: {}, create: { ...c, isActive: true } });
+  }
+  return SAMPLE_COUPONS.length;
+}
+
 async function main() {
   const counts = await seedCatalogue();
   const owner = await seedOwner();
+  const coupons = await seedCoupons();
   console.log(
     `✅ Seeded ${categories.length} categories, ${counts.products} products, ${counts.variants} variants` +
-      (owner ? `, OWNER user ${owner.id}` : ""),
+      (owner ? `, OWNER user ${owner.id}` : "") +
+      `, ${coupons} SAMPLE coupons (WELCOME10, FLAT50)`,
   );
   console.log("⚠️  SAMPLE PRICES – replace before launch (all variants have isSampleData=true).");
 }

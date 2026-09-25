@@ -1,7 +1,7 @@
-import Image from "next/image";
 import { ArrowDown, Leaf, ShieldCheck, Sparkles } from "lucide-react";
 import { ButtonLink } from "@/components/button-link";
-import { Mascot, SpeechBubble } from "@/components/mascot";
+import { HeroVisual } from "@/components/landing/hero-visual";
+import { Magnetic } from "@/components/scroll/magnetic";
 import { Reveal } from "@/components/reveal";
 import { WhatsAppIcon } from "@/components/icons";
 import { SITE } from "@/lib/site";
@@ -45,10 +45,14 @@ export function Hero() {
           </Reveal>
           <Reveal delay={0.15}>
             <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center lg:justify-start">
-              <ButtonLink href="/shop">Shop now</ButtonLink>
-              <ButtonLink href={SITE.whatsappUrl} variant="whatsapp" external>
-                <WhatsAppIcon /> Order on WhatsApp
-              </ButtonLink>
+              <Magnetic>
+                <ButtonLink href="/shop">Shop now</ButtonLink>
+              </Magnetic>
+              <Magnetic>
+                <ButtonLink href={SITE.whatsappUrl} variant="whatsapp" external>
+                  <WhatsAppIcon /> Order on WhatsApp
+                </ButtonLink>
+              </Magnetic>
             </div>
             <ul className="mt-8 flex flex-wrap justify-center gap-2 lg:justify-start">
               {SITE.claims.map((c, i) => {
@@ -63,45 +67,7 @@ export function Hero() {
           </Reveal>
         </div>
 
-        {/* Mascot + fanned posters */}
-        <div className="relative mx-auto h-[26rem] w-full max-w-md sm:h-[30rem]">
-          <div aria-hidden className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-saffron sm:h-80 sm:w-80" />
-          <Image
-            src="/images/posters/adai-mix-purple.jpg"
-            alt=""
-            width={1066}
-            height={1600}
-            sizes="180px"
-            className="absolute left-0 top-10 w-36 -rotate-12 rounded-2xl shadow-xl sm:w-44"
-            loading="eager"
-          />
-          <Image
-            src="/images/posters/pongal-mix-blue.jpg"
-            alt=""
-            width={1076}
-            height={1600}
-            sizes="180px"
-            className="absolute right-0 top-6 w-36 rotate-12 rounded-2xl shadow-xl sm:w-44"
-            loading="eager"
-          />
-          <Image
-            src="/images/posters/rava-dosa-mix-green.jpg"
-            alt=""
-            width={1076}
-            height={1600}
-            sizes="180px"
-            className="absolute bottom-2 left-1/2 w-36 -translate-x-1/2 rotate-3 rounded-2xl shadow-xl sm:w-44"
-            loading="eager"
-          />
-          <div className="absolute bottom-10 left-1/2 -translate-x-[70%]">
-            <Mascot size={210} priority />
-          </div>
-          <Reveal from="scale" delay={0.4} className="absolute right-0 top-[42%] max-w-[13rem] sm:-right-6">
-            <SpeechBubble tail="left" className="text-base">
-              Vanakkam! Let me show you how breakfast got easy.
-            </SpeechBubble>
-          </Reveal>
-        </div>
+        <HeroVisual />
       </div>
 
       <a

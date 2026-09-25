@@ -1,6 +1,7 @@
 import { ButtonLink } from "@/components/button-link";
 import { Mascot, SpeechBubble } from "@/components/mascot";
 import { Reveal } from "@/components/reveal";
+import { Magnetic } from "@/components/scroll/magnetic";
 import { WhatsAppIcon } from "@/components/icons";
 import { SITE } from "@/lib/site";
 
@@ -18,10 +19,14 @@ export function FinalCta() {
             </h2>
             <p className="mt-4 max-w-xl text-lg text-white/90">{SITE.tagline}. {SITE.claims.join(" · ")}.</p>
             <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-              <ButtonLink href="/shop" variant="light">Shop now</ButtonLink>
-              <ButtonLink href={SITE.whatsappUrl} variant="whatsapp" external>
-                <WhatsAppIcon /> Order on WhatsApp
-              </ButtonLink>
+              <Magnetic>
+                <ButtonLink href="/shop" variant="light">Shop now</ButtonLink>
+              </Magnetic>
+              <Magnetic>
+                <ButtonLink href={SITE.whatsappUrl} variant="whatsapp" external>
+                  <WhatsAppIcon /> Order on WhatsApp
+                </ButtonLink>
+              </Magnetic>
             </div>
           </Reveal>
           <Reveal from="scale" className="flex flex-col items-center">

@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ArrowRight, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Loader2, Plus, RotateCcw, Sparkles } from "lucide-react";
+import { useCart } from "@/components/cart/cart-provider";
 import { formatPaise } from "@/lib/money";
 import { Tilt } from "./tilt";
 import type { CardProduct } from "./types";
@@ -30,6 +31,7 @@ export function FlipCard({ product, headingLevel = "h3", sizes }: Props) {
   const discount = product.minMrp > product.minPrice ? Math.round((1 - product.minPrice / product.minMrp) * 100) : 0;
   const href = `/products/${product.slug}`;
   const multi = product.flavours.length > 1;
+  const { add, cart, pendingVariant } = useCart();
 
   function flip(next: boolean) {
     setFlipped(next);
@@ -120,12 +122,41 @@ export function FlipCard({ product, headingLevel = "h3", sizes }: Props) {
               <Sparkles className="h-5 w-5" aria-hidden /> {multi ? "Choose your flavour" : "Flavour"}
             </p>
             <ul className="mt-3 space-y-2">
-              {product.flavours.map((f) => (
-                <li key={f.en} className="flex items-baseline justify-between gap-3 rounded-2xl px-4 py-2" style={{ backgroundColor: "rgba(255,255,255,0.12)" }}>
-                  <span className="font-bold">{f.en}</span>
-                  {f.ta && <span lang="ta" className="font-tamil text-sm text-white/85">{f.ta}</span>}
-                </li>
-              ))}
+              {product.flavours.map((f) => {
+                const qa = product.quickAdd.find((q) => q.flavourEn === f.en);
+                const inCart = qa ? (cart.lines.find((l) => l.variantId === qa.variantId)?.quantity ?? 0) : 0;
+                const busy = qa && pendingVariant === qa.variantId;
+                const soldOut = !qa || qa.stock <= 0;
+                const maxed = !!qa && inCart >= Math.min(qa.stock, 10);
+                return (
+                  <li key={f.en} className="flex items-center justify-between gap-3 rounded-2xl py-1.5 pl-4 pr-1.5" style={{ backgroundColor: "rgba(255,255,255,0.12)" }}>
+                    <span className="min-w-0">
+                      <span className="block font-bold leading-tight">{f.en}</span>
+                      {f.ta && <span lang="ta" className="block font-tamil text-xs text-white/85">{f.ta}</span>}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={soldOut || maxed || !!busy}
+                      onClick={() => qa && add(qa.variantId, 1)}
+                      aria-label={
+                        soldOut
+                          ? `${product.nameEn} ${f.en} is sold out`
+                          : `Add ${product.nameEn} ${f.en}${qa ? ` ${qa.sizeGrams} g` : ""} to cart${inCart ? `, ${inCart} in cart` : ""}`
+                      }
+                      className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full bg-white px-3 text-sm font-extrabold text-ink shadow transition hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+                    >
+                      {busy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : inCart > 0 ? (
+                        <Check className="h-4 w-4 text-leaf" aria-hidden />
+                      ) : (
+                        <Plus className="h-4 w-4" aria-hidden />
+                      )}
+                      {soldOut ? "Sold out" : inCart > 0 ? `${inCart} in cart` : "Add"}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
             <p className="mt-4 text-sm text-white/85">
               Pack {product.sizes.length > 1 ? "sizes" : "size"}: {product.sizes.map((s) => `${s} g`).join(", ")}

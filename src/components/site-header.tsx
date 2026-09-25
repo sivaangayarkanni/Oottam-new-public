@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, ShoppingBag } from "lucide-react";
+import { Menu, UserRound } from "lucide-react";
+import { CartButton } from "@/components/cart/cart-button";
 import { WhatsAppIcon } from "@/components/icons";
 import { SITE } from "@/lib/site";
 
@@ -11,7 +12,7 @@ const NAV = [
   { href: "/#why-oottam", label: "Why Oottam" },
 ];
 
-export function SiteHeader() {
+export function SiteHeader({ user }: { user: { name: string | null } | null }) {
   return (
     <header className="sticky top-0 z-50 border-b border-ink/10 bg-cream/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
@@ -57,17 +58,20 @@ export function SiteHeader() {
             <WhatsAppIcon className="h-4 w-4" />
             Order on WhatsApp
           </a>
-          <span
-            role="img"
-            aria-label="Cart (coming soon)"
-            title="Cart coming soon"
-            className="relative grid h-11 w-11 cursor-not-allowed place-items-center rounded-full border-2 border-ink/15 text-ink/50"
+          <Link
+            href={user ? "/account" : "/login"}
+            aria-label={user ? `Your account${user.name ? `, ${user.name}` : ""}` : "Log in"}
+            className="grid h-11 w-11 place-items-center rounded-full border-2 border-ink/15 transition hover:border-saffron hover:bg-saffron/10"
           >
-            <ShoppingBag className="h-5 w-5" aria-hidden />
-            <span className="absolute -right-1 -top-1 rounded-full bg-turmeric px-1.5 text-[10px] font-bold text-ink">
-              soon
-            </span>
-          </span>
+            {user?.name ? (
+              <span className="font-display text-lg font-extrabold text-saffron-deep" aria-hidden>
+                {user.name.trim().charAt(0).toUpperCase()}
+              </span>
+            ) : (
+              <UserRound className="h-5 w-5" aria-hidden />
+            )}
+          </Link>
+          <CartButton />
 
           {/* Mobile menu: native <details> keeps it keyboard-accessible without client JS */}
           <details className="group relative md:hidden">

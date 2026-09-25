@@ -5,6 +5,11 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { SampleBanner } from "@/components/sample-banner";
 import { SITE } from "@/lib/site";
+import { CartProvider } from "@/components/cart/cart-provider";
+import { CartDrawer } from "@/components/cart/cart-drawer";
+import { getDeliveryRule } from "@/lib/config";
+import { getCurrentUser } from "@/server/auth";
+import { getCartView } from "@/server/cart";
 import "./globals.css";
 
 // Playful rounded display face with Tamil support
@@ -33,7 +38,8 @@ export const viewport: Viewport = {
   themeColor: "#f57c00",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const [user, cart] = await Promise.all([getCurrentUser(), getCartView()]);
   return (
     <html
       lang="en"
@@ -47,12 +53,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to content
         </a>
         <MotionProvider>
-          <SampleBanner />
-          <SiteHeader />
-          <div id="main" className="flex flex-1 flex-col">
-            {children}
-          </div>
-          <SiteFooter />
+          <CartProvider initial={cart} delivery={getDeliveryRule()}>
+            <SampleBanner />
+            <SiteHeader user={user ? { name: user.name } : null} />
+            <div id="main" className="flex flex-1 flex-col">
+              {children}
+            </div>
+            <SiteFooter />
+            <CartDrawer />
+          </CartProvider>
         </MotionProvider>
       </body>
     </html>

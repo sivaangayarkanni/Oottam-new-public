@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import clsx from "clsx";
-import { Check, ShoppingBag } from "lucide-react";
+import { Check, Loader2, ShoppingBag } from "lucide-react";
 import { formatPaise } from "@/lib/money";
 import { WhatsAppIcon } from "@/components/icons";
+import { useCart } from "@/components/cart/cart-provider";
+import { QuantityStepper } from "@/components/cart/quantity-stepper";
 
 export type SelectorVariant = {
   id: string;
@@ -31,13 +33,15 @@ function stockLabel(v: SelectorVariant) {
   return { text: "In stock", tone: "text-leaf" };
 }
 
-/** Flavour + size picker with live price / MRP / discount / stock. Cart arrives in module 3. */
+/** Flavour + size picker with live price / MRP / discount / stock, quantity and add-to-cart. */
 export function VariantSelector({ productName, color, variants, whatsappUrl }: Props) {
   const flavours = useMemo(() => [...new Map(variants.map((v) => [v.flavourEn, v])).values()], [variants]);
   const [flavour, setFlavour] = useState(flavours[0]?.flavourEn);
   const sizes = variants.filter((v) => v.flavourEn === flavour);
   const [sizeGrams, setSizeGrams] = useState<number | undefined>(sizes[0]?.sizeGrams);
   const selected = sizes.find((v) => v.sizeGrams === sizeGrams) ?? sizes[0];
+  const [qty, setQty] = useState(1);
+  const { add, cart, pendingVariant } = useCart();
 
   if (!selected) return <p className="text-ink-soft">This product is currently unavailable.</p>;
 
@@ -138,27 +142,47 @@ export function VariantSelector({ productName, color, variants, whatsappUrl }: P
         </p>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <button
-          type="button"
-          disabled
-          aria-describedby="cart-soon"
-          className="inline-flex min-h-12 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-full bg-ink/15 px-6 py-3 font-display text-lg font-bold text-ink/60"
-        >
-          <ShoppingBag className="h-5 w-5" aria-hidden /> Add to cart
-        </button>
-        <a
-          href={`${whatsappUrl}?text=${encodeURIComponent(waText)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-[#1f8f4e] px-6 py-3 font-display text-lg font-bold text-white shadow-[0_6px_0_0_#146236] transition hover:bg-[#146236] active:translate-y-1 active:shadow-none"
-        >
-          <WhatsAppIcon /> Order on WhatsApp
-        </a>
-      </div>
-      <p id="cart-soon" className="text-sm text-ink-soft">
-        🛒 Cart coming in the next step. For now, order this pack on WhatsApp.
-      </p>
+      {(() => {
+        const inCart = cart.lines.find((l) => l.variantId === selected.id)?.quantity ?? 0;
+        const maxAdd = Math.max(Math.min(selected.stock, 10) - inCart, 0);
+        const busy = pendingVariant === selected.id;
+        const soldOut = selected.stock <= 0;
+        const q = Math.min(Math.max(qty, 1), Math.max(maxAdd, 1));
+        return (
+          <>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {!soldOut && maxAdd > 0 && (
+                <QuantityStepper value={q} max={maxAdd} onChange={setQty} label="Quantity" />
+              )}
+              <button
+                type="button"
+                disabled={soldOut || maxAdd === 0 || busy}
+                onClick={() => {
+                  add(selected.id, q);
+                  setQty(1);
+                }}
+                className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full bg-saffron px-6 py-3 font-display text-lg font-bold text-white shadow-[0_6px_0_0_var(--color-saffron-deep)] transition hover:bg-saffron-deep active:translate-y-1 active:shadow-none disabled:cursor-not-allowed disabled:bg-ink/15 disabled:text-ink/60 disabled:shadow-none"
+              >
+                {busy ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : <ShoppingBag className="h-5 w-5" aria-hidden />}
+                {soldOut ? "Sold out" : maxAdd === 0 ? "Max in cart" : busy ? "Adding…" : "Add to cart"}
+              </button>
+            </div>
+            {inCart > 0 && (
+              <p className="text-sm font-semibold text-leaf">
+                {inCart} already in your cart{maxAdd === 0 ? ` (limit ${Math.min(selected.stock, 10)} per pack)` : ""}.
+              </p>
+            )}
+            <a
+              href={`${whatsappUrl}?text=${encodeURIComponent(waText)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border-2 border-[#1f8f4e] px-6 py-3 font-display text-lg font-bold text-[#146236] transition hover:bg-[#1f8f4e] hover:text-white"
+            >
+              <WhatsAppIcon /> Prefer WhatsApp? Order there
+            </a>
+          </>
+        );
+      })()}
     </div>
   );
 }

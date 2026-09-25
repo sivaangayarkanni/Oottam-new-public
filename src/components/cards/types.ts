@@ -12,4 +12,6 @@ export type CardProduct = {
   minPrice: number;
   maxPrice: number;
   minMrp: number;
+  /** One purchasable variant per flavour (smallest pack) for quick add. */
+  quickAdd: { variantId: string; flavourEn: string; sizeGrams: number; stock: number }[];
 };

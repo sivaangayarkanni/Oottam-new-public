@@ -17,5 +17,9 @@ export function toCardProduct(p: ShopProduct): CardProduct {
     minPrice: p.minPrice,
     maxPrice: p.maxPrice,
     minMrp: p.minMrp,
+    quickAdd: flavours.map((f) => {
+      const v = p.variants.filter((x) => x.flavourEn === f.en).sort((a, b) => a.sizeGrams - b.sizeGrams)[0];
+      return { variantId: v.id, flavourEn: v.flavourEn, sizeGrams: v.sizeGrams, stock: v.stock };
+    }),
   };
 }

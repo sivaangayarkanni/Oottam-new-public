@@ -1,14 +1,33 @@
-import Link from "next/link";
+import { connection } from "next/server";
+import { getShopProducts } from "@/lib/catalogue";
+import { Hero } from "@/components/landing/hero";
+import { Marquee } from "@/components/landing/marquee";
+import { Problem } from "@/components/landing/problem";
+import { Solution } from "@/components/landing/solution";
+import { HowItWorks } from "@/components/landing/how-it-works";
+import { Range } from "@/components/landing/range";
+import { WhyTrust } from "@/components/landing/why-trust";
+import { Heritage } from "@/components/landing/heritage";
+import { FinalCta } from "@/components/landing/final-cta";
+import { Reviews } from "@/components/reviews";
 
-// Placeholder home – the real landing page is built in Module 2.
-export default function Home() {
+export default async function Home() {
+  await connection();
+  const products = await getShopProducts();
+  const heritage = products.filter((p) => p.category.slug === "paarambariyam");
+
   return (
-    <main className="mx-auto flex max-w-3xl flex-1 flex-col items-center justify-center gap-4 px-6 py-24 text-center">
-      <h1 className="text-4xl font-bold">Oottam · ஊட்டம்</h1>
-      <p className="text-lg text-gray-600">Instant and Healthy South Indian breakfast mixes</p>
-      <Link href="/catalogue" className="rounded bg-orange-600 px-5 py-2 font-medium text-white hover:bg-orange-700">
-        View catalogue
-      </Link>
+    <main>
+      <Hero />
+      <Marquee />
+      <Problem />
+      <Solution />
+      <HowItWorks />
+      <Range products={products} />
+      <WhyTrust />
+      <Heritage products={heritage} />
+      <Reviews />
+      <FinalCta />
     </main>
   );
 }

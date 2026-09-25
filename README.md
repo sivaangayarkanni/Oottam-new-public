@@ -15,12 +15,14 @@ E-commerce store for **Oottam – "Instant and Healthy"** South Indian breakfast
 |---|---|
 | Framework | Next.js 16 (App Router, TypeScript, Tailwind CSS v4, ESLint, `src/` dir) |
 | Database | PostgreSQL via Prisma 7 (`prisma-client` generator + `@prisma/adapter-pg`) |
-| Planned | Razorpay (verified webhooks), Shiprocket, Cloudinary, Resend + WhatsApp, phone-OTP auth + guest checkout, admin roles (OWNER/STAFF), EN + TA, Vercel + Neon/Supabase |
+| Auth | Phone OTP (+91) with pluggable SMS provider, DB-backed revocable sessions |
+| Validation / tests | zod · Vitest (unit + Postgres integration) |
+| Planned | Razorpay (verified webhooks), Shiprocket, Cloudinary, Resend + WhatsApp, admin roles (OWNER/STAFF), EN + TA, Vercel + Neon/Supabase |
 
 ### Module roadmap
 1. **Foundation**: repo, schema, seed, read-only catalogue ✅
 2. **Landing page + storefront** ✅
-3. Cart, auth (phone OTP), guest checkout
+3. **Cart, phone-OTP login, address book, checkout** ✅
 4. Razorpay payments
 5. Admin panel
 6. Shipping + notifications
@@ -44,7 +46,14 @@ npm run dev                 # http://localhost:3000
 |---|---|
 | `/` | Storytelling landing page, guided by the Oottam chef mascot: hero → problem → solution → how it works → range (from DB) → why trust us → Paarambariyam heritage → reviews (approved only, hidden when none) → final CTA |
 | `/shop` | Product grid from the DB. Filters: `?category=rava-dosa-mix\|adai-mix\|pongal-mix\|paarambariyam`, `?tag=millet\|greens\|traditional`, `?sort=price-asc\|price-desc` (server-rendered links, no client JS needed) |
-| `/products/[slug]` | Product detail: poster, EN/TA names, flavour + size selector with price/MRP/discount/stock, disabled "Add to cart" (cart = Module 3), WhatsApp order link, description/ingredients/prep/nutrition with "details coming soon" fallbacks, SEO metadata + Product/Breadcrumb JSON-LD |
+| `/products/[slug]` | Product detail: poster, EN/TA names, flavour + size selector with price/MRP/discount/stock, quantity + **Add to cart** (opens the cart drawer), WhatsApp order link, description/ingredients/prep/nutrition with "details coming soon" fallbacks, SEO metadata + Product/Breadcrumb JSON-LD |
+| `/cart` | Full cart page (quantity, remove, stock warnings, delivery estimate). The header cart icon opens a slide-out drawer with a live count |
+| `/login` | Phone OTP login (+91): enter mobile → 6-digit code → verify. `?next=` (same-site paths only) |
+| `/account` | Profile (name/email), address book (add/edit/delete/default) and "My orders". Protected |
+| `/account/welcome` | Optional name/email capture after first login |
+| `/account/addresses/new`, `/account/addresses/[id]` | Address form (zod-validated) |
+| `/checkout` | Guest (phone + address) or logged-in (saved addresses) checkout, coupon, server-computed totals, payment placeholder, optional COD |
+| `/orders/[orderNumber]` | Order confirmation / details. Visible to the order's owner, OWNER/STAFF, or a guest holding the signed `?t=` link. `?placed=1` shows confetti (skipped for reduced motion) |
 | `/policies/{privacy,terms,refunds,shipping}` | Stub policy pages ("content coming soon"), `noindex` |
 | `/api/products` | JSON catalogue (`productCount`, `variantCount`, `samplePrices`, `products[]`) |
 | `/catalogue` | 308 redirect to `/shop` (Module 1 page retired) |
@@ -78,6 +87,96 @@ sudo -u postgres psql -c "CREATE ROLE oottam LOGIN PASSWORD 'change-me' CREATEDB
 # DATABASE_URL="postgresql://oottam:change-me@localhost:5432/oottam?schema=public"
 ```
 
+## Module 3: cart, login & checkout
+
+Business logic lives in framework-free services under `src/lib/` (they take the Prisma client as a parameter, so the
+same code runs in Server Actions and in tests). Next.js glue (cookies, headers) is in `src/server/`, Server Actions in
+`src/app/actions/`.
+
+| File | Responsibility |
+|---|---|
+| `lib/pricing.ts` | Pure maths: subtotal, coupon evaluation (PERCENT with cap / FLAT, min order, dates, total + per-customer limits), delivery fee, totals. All integer paise; prices are GST-inclusive so `tax = 0` |
+| `lib/cart.ts` | Cart read model (live DB prices, stock issues), add/set/remove with stock + 10-per-line clamp, guest→user merge |
+| `lib/orders.ts` | `quoteCheckout`, `placeOrder` (one transaction), `releaseExpiredOrders` |
+| `lib/otp.ts`, `lib/sms/` | OTP generation/hash/verify/rate-limits; pluggable SMS provider |
+| `lib/session.ts` | DB sessions (create / find / revoke / revoke-all) |
+| `lib/validation.ts` | zod schemas: phone, address (Indian states/UTs list), profile, checkout, coupon code, safe `next` redirect |
+| `lib/tokens.ts` | HMAC signing (cart cookie, guest order links), constant-time compare |
+| `src/proxy.ts` | Optimistic redirect of `/account/**` to `/login?next=…` when there's no session cookie |
+
+### Flows
+
+- **Cart**: guests get an `oottam_cart` cookie (`<random token>.<HMAC>`; httpOnly, `Secure` in production, SameSite=Lax,
+  30 days) that maps to `Cart.guestToken`. Logged-in users have a DB cart. On login, the guest cart is merged into
+  the user's cart (quantities summed, clamped to stock) and the cookie is dropped. The cart stores only variant ids +
+  quantities; **every view and every order is re-priced from the database**.
+- **Login**: `/login` → `requestOtpAction` → code sent via `SMS_PROVIDER` → `verifyOtpAction` → user upserted by phone,
+  `phoneVerifiedAt` set, new session, guest cart merged, earlier guest orders with that (now verified) phone attached to
+  the account → redirect to `next` (or `/account/welcome` the first time).
+- **Checkout**: server renders a quote; coupon "Apply" re-quotes on the server. "Place order" posts an idempotency key
+  plus the total the customer saw. `placeOrder` then, in **one transaction**:
+  1. reads the cart; for each line runs `UPDATE "ProductVariant" SET stock = stock - q WHERE id = … AND stock >= q`
+     (Postgres re-checks the condition after taking the row lock, so concurrent checkouts **cannot oversell**; lines are
+     processed in a fixed order to avoid deadlocks);
+  2. re-prices from the locked rows, validates the coupon and redeems it with a guarded `usedCount` increment;
+  3. aborts with "prices changed" if the total differs from what the customer saw;
+  4. allocates `OTM-YYYY-NNNNNN`, snapshots the address and item prices, creates the Order (`PENDING`) and a `Payment`
+     row (`razorpay`, `CREATED`) for Module 4, and empties the cart.
+  A repeated key returns the first order (`duplicate: true`) instead of creating another; a key reused by a different
+  customer is rejected.
+- **Payment**: placeholder ("Online payment connects in the next step"). **COD** is behind `FEATURE_COD` (default off);
+  COD orders are created `CONFIRMED` with a `cod` payment row.
+- **Unpaid orders**: `npm run orders:release-expired` (or `releaseExpiredOrders()` from code) cancels `PENDING`
+  online orders older than `PENDING_ORDER_TTL_MINUTES` that have no authorised/captured payment, returns stock and
+  coupon usage, marks the payment `FAILED/EXPIRED` and writes an `AuditLog`. It is idempotent and safe to run in
+  parallel. **Schedule it every ~5 minutes** (Render/Railway cron job, GitHub Actions schedule or system cron).
+- **Order page access**: owner of the order, OWNER/STAFF, or a guest with `?t=<HMAC(orderNumber)>` (sent in the
+  post-checkout redirect). Anyone else gets a 404. The page sets `Referrer-Policy: same-origin` so the token isn't leaked.
+
+### Security notes
+
+- **OTP**: 6 digits from `crypto.randomInt`; only `HMAC-SHA256(OTP_HASH_SECRET, phone:code)` is stored; 5-minute
+  expiry; 5 attempts per code (the attempt is counted atomically *before* comparing, so parallel guesses can't exceed
+  it); single use; a new code invalidates older ones; `timingSafeEqual` comparison.
+  Send limits: **per phone 1 per 30 s and 5 per hour; per IP 1 per 10 s and 10 per hour**, enforced from `OtpCode`
+  rows under a Postgres advisory lock (no race). The code is **never** returned to the browser; the dev provider only
+  logs it to the server console, and production refuses the dev provider unless `ALLOW_DEV_SMS_IN_PRODUCTION=true`.
+- **Sessions**: cookie `oottam_session` = 256-bit random token (httpOnly, `Secure` in production, SameSite=Lax, 30 days);
+  the DB stores only its SHA-256, so a DB leak doesn't leak sessions. A fresh session is issued on every login (the old
+  one is revoked) and logout revokes it server-side. `revokeAllSessions(userId)` is ready for the admin panel.
+  `requireUser()` in each protected page is the authoritative check; the proxy is only a fast redirect.
+- **CSRF**: every mutation is a Server Action (POST). Next.js compares the `Origin` header with the `Host` and rejects
+  cross-site calls; combined with SameSite=Lax cookies this is our CSRF protection. If the site is served behind a
+  proxy on a different host, add it to `experimental.serverActions.allowedOrigins`. No mutating GET routes exist.
+- **Input**: all inputs are validated with zod (phone, address incl. 6-digit PIN and state/UT list, profile, coupon,
+  checkout). Address edits/deletes are scoped by `userId`. Post-login redirects accept same-site paths only.
+- **Prices**: the client never sends prices; totals are computed on the server from DB rows inside the order transaction.
+
+### Tests
+
+`npm test` runs Vitest (53 tests):
+- `tests/unit/pricing.test.ts`: fees, thresholds, percent/flat coupons, caps, dates, limits.
+- `tests/unit/otp.test.ts`: OTP hashing, rate-limit window maths, SMS production guard, phone/address validation, safe redirects.
+- `tests/integration/orders.test.ts` (Postgres): pricing + stock decrement + snapshots, **12 concurrent checkouts for 5
+  units → exactly 5 orders**, rollback on partial stock, idempotency (incl. concurrent double submit), coupon usage
+  limits, stale totals, expired-order stock release (run twice in parallel → released once), cart clamping.
+- `tests/integration/auth.test.ts` (Postgres): OTP single use, expiry, attempt lockout (also under 20 parallel guesses),
+  per-phone / per-IP rate limits, sessions + revocation, guest-cart merge.
+
+Integration tests use `TEST_DATABASE_URL` (a separate database; migrations are applied automatically in
+`tests/support/global-setup.ts`) and truncate its tables between tests.
+
+### Hooks left for later modules
+
+- **Module 4 (Razorpay)**: each online order already has a `Payment` row (`provider=razorpay`, `status=CREATED`,
+  amount). Create the Razorpay order from it, verify signature/webhook, set `CAPTURED` and move the order to
+  `CONFIRMED`. The order page has a disabled "Pay" button to wire up. `releaseExpiredOrders` skips orders with an
+  authorised/captured payment.
+- **Module 5 (Admin)**: `revokeAllSessions`, `AuditLog`, coupons table (sample coupons are marked `[SAMPLE]`),
+  `FEATURE_COD`, delivery-fee env vars.
+- **Module 6 (Shipping/notifications)**: implement `msg91`/`twilio` in `src/lib/sms/index.ts` (interface `SmsProvider`),
+  send order confirmations after `placeOrder`, create `Shipment` rows.
+
 ## Environment variables
 
 See `.env.example`. **Never commit `.env`** (it is git-ignored).
@@ -90,9 +189,19 @@ See `.env.example`. **Never commit `.env`** (it is git-ignored).
 | `SEED_OWNER_NAME` | no | Display name for the OWNER |
 | `NEXT_PUBLIC_SITE_URL` | no | Public base URL |
 | `NEXT_PUBLIC_WHATSAPP_NUMBER` | no | WhatsApp number for order links (`919245537575`) |
-| `RAZORPAY_*`, `SHIPROCKET_*`, `CLOUDINARY_*`, `RESEND_API_KEY`, `OTP_HASH_SECRET` | later modules | Placeholders only |
+| `AUTH_SECRET` | **prod** | ≥32 random chars. Signs the guest-cart cookie and guest order links. (`openssl rand -base64 48`) |
+| `OTP_HASH_SECRET` | **prod** | ≥32 random chars. HMAC key for stored OTP hashes |
+| `SMS_PROVIDER` | **prod** | `dev` (console, default outside production) · `msg91` · `twilio` (stubs until Module 6 wiring) |
+| `ALLOW_DEV_SMS_IN_PRODUCTION` | no | `true` lets a *local* production build use the console provider. **Never set on the live site** |
+| `DELIVERY_FEE_PAISE` | no | Flat delivery fee (default `4900` = ₹49) |
+| `FREE_DELIVERY_THRESHOLD_PAISE` | no | Free delivery when subtotal − discount ≥ this (default `49900` = ₹499; `0` = always free) |
+| `FEATURE_COD` | no | `true` shows Cash on Delivery at checkout (default **off**) |
+| `PENDING_ORDER_TTL_MINUTES` | no | How long unpaid online orders hold stock (default `30`) |
+| `TEST_DATABASE_URL` | tests | Separate database for integration tests (must differ from `DATABASE_URL`) |
+| `RAZORPAY_*`, `SHIPROCKET_*`, `CLOUDINARY_*`, `RESEND_API_KEY` | later modules | Placeholders only |
 
-The OWNER user is created **without a password**. Admins sign in with phone OTP (Module 3/5).
+In development `AUTH_SECRET`/`OTP_HASH_SECRET` fall back to a clearly-labelled dev value; **production refuses to start
+auth without them**. The OWNER user is created **without a password** and signs in with phone OTP like everyone else.
 
 ## Scripts
 
@@ -107,6 +216,8 @@ The OWNER user is created **without a password**. Admins sign in with phone OTP 
 | `npm run db:seed` | Run `prisma/seed.ts` (idempotent, safe to re-run) |
 | `npm run db:reset` | Drop, re-migrate and re-seed the local DB |
 | `npm run db:studio` | Prisma Studio |
+| `npm test` | Vitest: unit tests + Postgres integration tests (needs `TEST_DATABASE_URL`; migrations are applied to it automatically) |
+| `npm run orders:release-expired` | Cancel unpaid online orders older than `PENDING_ORDER_TTL_MINUTES` and return their stock (for a cron) |
 
 ## Schema overview (`prisma/schema.prisma`)
 
@@ -129,6 +240,10 @@ The OWNER user is created **without a password**. Admins sign in with phone OTP 
 | `Shipment` | Shiprocket IDs, AWB, courier, tracking, status, raw payload |
 | `AuditLog` | Who changed what (before/after JSON), IP, user agent |
 | `OtpCode` | **Hashed** OTP codes with attempts/expiry per phone & purpose |
+| `Session` | DB-backed login sessions: SHA-256 of the cookie token, expiry, last used, `revokedAt`, IP/UA |
+
+`Order` also has `idempotencyKey` (unique; double-submit protection) and `stockReleasedAt`; order numbers come from
+the Postgres sequence `order_number_seq` (`OTM-<year>-<6 digits>`).
 
 ## Seed data
 
@@ -145,6 +260,10 @@ The OWNER user is created **without a password**. Admins sign in with phone OTP 
 
 Sample values used (**replace before launch**): 200 g packs; Rava Dosa ₹120 (MRP ₹140),
 Adai ₹130 (MRP ₹150), Pongal ₹150 (MRP ₹170), Paarambariyam ₹140 (MRP ₹160); stock 50.
+
+**Sample coupons** (description starts with `[SAMPLE]`; created once, never overwritten by re-seeding):
+`WELCOME10` = 10% off, max ₹50, min order ₹199, once per customer, 1000 uses; `FLAT50` = ₹50 off orders ≥ ₹499, 500 uses.
+Deactivate or edit them before launch.
 
 ## Brand
 

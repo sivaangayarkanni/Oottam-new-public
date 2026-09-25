@@ -52,7 +52,17 @@ npm run dev                 # http://localhost:3000
 ### Front-end notes
 
 - Design tokens (brand + per-family poster colours) live in `src/app/globals.css` (`@theme`). Fonts: **Baloo Thambi 2** (display, Latin + Tamil), **Nunito** (body), **Noto Sans Tamil** (Tamil text).
-- Animations use `motion` (Framer Motion) scroll reveals plus a few CSS keyframes. All of them respect `prefers-reduced-motion`.
+- Animations use `motion` (Framer Motion) plus a few CSS keyframes. All of them respect `prefers-reduced-motion`. Scroll-linked effects only animate `transform`/`opacity`:
+  - **Scroll progress bar** in the six pack colours (`components/scroll/scroll-progress.tsx`).
+  - **Hero parallax**: pack posters float in layers at different scroll speeds, with idle floating and a waving mascot (`landing/hero-visual.tsx`).
+  - **Mascot guide**: a mini mascot follows the reader, and its speech bubble changes per section via `data-guide` attributes in `app/page.tsx`. It doubles as a back-to-top button (`scroll/mascot-guide.tsx`).
+  - **Pinned scrollytelling** (`landing/story-scroll.tsx`): pain points appear then scatter, a cream wipe opens from the mascot, and the scene becomes the solution with the promises. Under reduced motion a static Problem + Solution pair is shown instead (pure CSS `motion-reduce:` switch).
+  - **Mix/Pour/Cook** steps reveal one by one with a self-drawing connector.
+  - **Range deck** (`landing/range-deck.tsx`): cards start as a fanned deck and deal into the grid as the section scrolls in (sm+; mobile gets a native swipe row).
+  - **Tilt + flip cards** (`components/cards/`): 3D hover tilt with glare, and a flip `<button aria-pressed>` that reveals the flavour list. The hidden face is `inert`, and focus moves to the visible face. Used on the landing page and `/shop`.
+  - **Horizontal heritage journey** (`landing/heritage-horizontal.tsx`): the section is pinned and vertical scroll drives a horizontal track (md+ with motion). Mobile or reduced motion gets a native swipe row or grid.
+  - **Magnetic CTA buttons** (`scroll/magnetic.tsx`) and a subtle brand marquee.
+  - Note: scroll progress values are passed through a function `useTransform` to opt out of motion's native ScrollTimeline acceleration, which mis-handled keyframe ranges that don't span 0 to 1 (values faded back out).
 - Mascot cut-outs (`public/images/mascot/`) were cropped from the posters and background-removed with `rembg` (isnet-general-use). `oottam-chef-rounded.png` is a plain rounded crop fallback. The source is only ~225×296 px, so a high-resolution mascot file from the brand would look sharper.
 - The site-wide "sample values" banner is data-driven: it disappears automatically once no active variant has `isSampleData = true`.
 - Product JSON-LD **omits `offers` while prices are sample data**, so placeholder prices are never published to search engines.

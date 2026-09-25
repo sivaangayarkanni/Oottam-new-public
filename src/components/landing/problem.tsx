@@ -22,7 +22,7 @@ const PROBLEMS = [
 
 export function Problem() {
   return (
-    <section id="problem" aria-labelledby="problem-heading" className="relative scroll-mt-20 bg-ink py-20 text-cream sm:py-28">
+    <section aria-labelledby="problem-heading" className="relative bg-ink py-20 text-cream sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
         <Reveal>
           <p className="text-center font-display text-lg font-bold uppercase tracking-[0.2em] text-turmeric">Chapter 1 · The problem</p>

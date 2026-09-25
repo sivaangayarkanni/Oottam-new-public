@@ -1,4 +1,8 @@
+"use client";
+
 import { CookingPot, Droplet, Soup } from "lucide-react";
+import { useRef } from "react";
+import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from "motion/react";
 import { Reveal } from "@/components/reveal";
 
 function MixArt() {
@@ -35,7 +39,32 @@ const STEPS = [
   { art: CookArt, title: "Cook", body: "Cook until done and serve hot with your favourite chutney." },
 ];
 
+function Step({ step, i, p, reduce }: { step: (typeof STEPS)[number]; i: number; p: MotionValue<number>; reduce: boolean }) {
+  const a0 = 0.1 + i * 0.28;
+  const opacity = useTransform(p, [a0, a0 + 0.18], [0, 1]);
+  const y = useTransform(p, [a0, a0 + 0.18], [60, 0]);
+  const scale = useTransform(p, [a0, a0 + 0.12, a0 + 0.18], [0.5, 1.08, 1]);
+  const Art = step.art;
+  return (
+    <motion.li style={reduce ? undefined : { opacity, y }} className="relative flex flex-col items-center text-center">
+      <motion.div style={reduce ? undefined : { scale }} className="relative rounded-full bg-cream-deep p-1">
+        <Art />
+        <span className="absolute -right-1 -top-1 grid h-9 w-9 place-items-center rounded-full bg-ink font-display text-lg font-bold text-white">
+          {i + 1}
+        </span>
+      </motion.div>
+      <h3 className="mt-5 font-display text-3xl font-extrabold">{step.title}</h3>
+      <p className="mt-2 max-w-xs text-ink-soft">{step.body}</p>
+    </motion.li>
+  );
+}
+
 export function HowItWorks() {
+  const ref = useRef<HTMLOListElement>(null);
+  const reduce = useReducedMotion() ?? false;
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 85%", "end 55%"] });
+  const p = useTransform(scrollYProgress, (v) => v); // opt out of native acceleration (see StoryScroll)
+  const line = useTransform(p, [0.1, 0.85], [0, 1]);
   return (
     <section id="how-it-works" aria-labelledby="how-heading" className="scroll-mt-20 bg-cream-deep py-20 sm:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
@@ -45,19 +74,15 @@ export function HowItWorks() {
             Mix. Pour. Cook. <span className="text-saffron">Done.</span>
           </h2>
         </Reveal>
-        <ol className="relative mt-16 grid gap-10 md:grid-cols-3">
-          <span aria-hidden className="absolute left-[16%] right-[16%] top-14 hidden border-t-4 border-dotted border-ink/15 md:block" />
+        <ol ref={ref} className="relative mt-16 grid gap-12 md:grid-cols-3 md:gap-10">
+          {/* connector that draws itself as you scroll */}
+          <motion.span
+            aria-hidden
+            style={reduce ? undefined : { scaleX: line }}
+            className="absolute left-[16%] right-[16%] top-14 hidden h-1.5 origin-left rounded-full bg-gradient-to-r from-rava via-adai to-pongal md:block"
+          />
           {STEPS.map((s, i) => (
-            <Reveal as="li" key={s.title} delay={i * 0.15} className="relative flex flex-col items-center text-center">
-              <div className="relative rounded-full bg-cream-deep p-1">
-                <s.art />
-                <span className="absolute -right-1 -top-1 grid h-9 w-9 place-items-center rounded-full bg-ink font-display text-lg font-bold text-white">
-                  {i + 1}
-                </span>
-              </div>
-              <h3 className="mt-5 font-display text-3xl font-extrabold">{s.title}</h3>
-              <p className="mt-2 max-w-xs text-ink-soft">{s.body}</p>
-            </Reveal>
+            <Step key={s.title} step={s} i={i} p={p} reduce={reduce} />
           ))}
         </ol>
         <p className="mt-12 text-center text-sm text-ink-soft">Exact quantities and cooking directions are printed on every pack.</p>

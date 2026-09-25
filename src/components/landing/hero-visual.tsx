@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import Image from "next/image";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { SpeechBubble } from "@/components/mascot";
@@ -13,10 +14,26 @@ const LAYERS = [
   { src: "/images/posters/rava-dosa-mix-green.jpg", w: 1076, cls: "bottom-0 left-1/2 -ml-[4.5rem] rotate-3 w-36 sm:-ml-[5.5rem] sm:w-44", speed: -110, delay: "-0.8s" },
 ];
 
+const SMALL = "(max-width: 639px)";
+function useIsSmall() {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(SMALL);
+      mq.addEventListener("change", cb);
+      return () => mq.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(SMALL).matches,
+    () => false,
+  );
+}
+
 function Layer({ l, i }: { l: (typeof LAYERS)[number]; i: number }) {
   const reduce = useReducedMotion();
+  const small = useIsSmall();
   const { scrollY } = useScroll();
-  const y = useTransform(scrollY, [0, 900], [0, l.speed]);
+  // On phones the text sits directly above the illustration, so keep the upward drift small
+  // or the packs slide over the claim chips.
+  const y = useTransform(scrollY, [0, 900], [0, small ? l.speed * 0.12 : l.speed]);
   return (
     <motion.div className={`absolute ${l.cls}`} style={reduce ? undefined : { y }}>
       <div className="animate-float" style={{ animationDelay: l.delay, animationDuration: `${5 + i * 0.7}s` }}>
@@ -87,7 +104,7 @@ export function HeroVisual() {
       </motion.div>
     </div>
     <motion.div
-      className="relative z-10 mx-auto -mt-2 w-fit max-w-[16rem] sm:hidden"
+      className="relative z-10 mx-auto mt-5 w-fit max-w-[16rem] sm:hidden"
       initial={reduce ? false : { opacity: 0, y: -10, scale: 0.8 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 200, damping: 14, delay: 0.9 }}

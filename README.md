@@ -18,8 +18,8 @@ E-commerce store for **Oottam – "Instant and Healthy"** South Indian breakfast
 | Planned | Razorpay (verified webhooks), Shiprocket, Cloudinary, Resend + WhatsApp, phone-OTP auth + guest checkout, admin roles (OWNER/STAFF), EN + TA, Vercel + Neon/Supabase |
 
 ### Module roadmap
-1. **Foundation**: repo, schema, seed, read-only catalogue ← *this module*
-2. Landing page + storefront
+1. **Foundation**: repo, schema, seed, read-only catalogue ✅
+2. **Landing page + storefront** ✅
 3. Cart, auth (phone OTP), guest checkout
 4. Razorpay payments
 5. Admin panel
@@ -38,11 +38,25 @@ npm run db:seed             # load categories, products, variants, OWNER user
 npm run dev                 # http://localhost:3000
 ```
 
-Pages / routes available in Module 1:
+### Routes
 
-- `/`: placeholder home
-- `/catalogue`: read-only catalogue rendered from the DB
-- `/api/products`: JSON catalogue (`productCount`, `variantCount`, `samplePrices`, `products[]`)
+| Route | What it is |
+|---|---|
+| `/` | Storytelling landing page, guided by the Oottam chef mascot: hero → problem → solution → how it works → range (from DB) → why trust us → Paarambariyam heritage → reviews (approved only, hidden when none) → final CTA |
+| `/shop` | Product grid from the DB. Filters: `?category=rava-dosa-mix\|adai-mix\|pongal-mix\|paarambariyam`, `?tag=millet\|greens\|traditional`, `?sort=price-asc\|price-desc` (server-rendered links, no client JS needed) |
+| `/products/[slug]` | Product detail: poster, EN/TA names, flavour + size selector with price/MRP/discount/stock, disabled "Add to cart" (cart = Module 3), WhatsApp order link, description/ingredients/prep/nutrition with "details coming soon" fallbacks, SEO metadata + Product/Breadcrumb JSON-LD |
+| `/policies/{privacy,terms,refunds,shipping}` | Stub policy pages ("content coming soon"), `noindex` |
+| `/api/products` | JSON catalogue (`productCount`, `variantCount`, `samplePrices`, `products[]`) |
+| `/catalogue` | 308 redirect to `/shop` (Module 1 page retired) |
+
+### Front-end notes
+
+- Design tokens (brand + per-family poster colours) live in `src/app/globals.css` (`@theme`). Fonts: **Baloo Thambi 2** (display, Latin + Tamil), **Nunito** (body), **Noto Sans Tamil** (Tamil text).
+- Animations use `motion` (Framer Motion) scroll reveals plus a few CSS keyframes. All of them respect `prefers-reduced-motion`.
+- Mascot cut-outs (`public/images/mascot/`) were cropped from the posters and background-removed with `rembg` (isnet-general-use). `oottam-chef-rounded.png` is a plain rounded crop fallback. The source is only ~225×296 px, so a high-resolution mascot file from the brand would look sharper.
+- The site-wide "sample values" banner is data-driven: it disappears automatically once no active variant has `isSampleData = true`.
+- Product JSON-LD **omits `offers` while prices are sample data**, so placeholder prices are never published to search engines.
+- `Product.tags` (`millet`, `greens`, `traditional`) power the shop filters.
 
 ### Local PostgreSQL quick setup (Debian/Ubuntu)
 

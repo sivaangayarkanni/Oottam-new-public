@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createSession, findSessionUser, revokeSession, SESSION_TTL_MS } from "@/lib/session";
 import { clientIp, secureCookies, userAgent } from "./request";
@@ -20,6 +20,17 @@ export async function requireUser(nextPath: string) {
   const user = await getCurrentUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(nextPath)}`);
   return user;
+}
+
+/** OWNER/STAFF-only pages (minimal admin until Module 5). Non-staff get a 404, not a hint. */
+export async function requireStaff(nextPath: string) {
+  const user = await requireUser(nextPath);
+  if (user.role !== "OWNER" && user.role !== "STAFF") notFound();
+  return user;
+}
+
+export function isStaff(user: { role: string } | null | undefined) {
+  return !!user && (user.role === "OWNER" || user.role === "STAFF");
 }
 
 /** Start a fresh session (old session token, if any, is revoked – rotation on login). */

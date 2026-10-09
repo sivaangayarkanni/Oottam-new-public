@@ -23,7 +23,7 @@ E-commerce store for **Oottam – "Instant and Healthy"** South Indian breakfast
 1. **Foundation**: repo, schema, seed, read-only catalogue ✅
 2. **Landing page + storefront** ✅
 3. **Cart, phone-OTP login, address book, checkout** ✅
-4. Razorpay payments
+4. **Payments: direct UPI with manual verification** ✅ (Razorpay can be added later as another provider)
 5. Admin panel
 6. Shipping + notifications
 7. Security hardening + go live
@@ -53,7 +53,8 @@ npm run dev                 # http://localhost:3000
 | `/account/welcome` | Optional name/email capture after first login |
 | `/account/addresses/new`, `/account/addresses/[id]` | Address form (zod-validated) |
 | `/checkout` | Guest (phone + address) or logged-in (saved addresses) checkout, coupon, server-computed totals, payment placeholder, optional COD |
-| `/orders/[orderNumber]` | Order confirmation / details. Visible to the order's owner, OWNER/STAFF, or a guest holding the signed `?t=` link. `?placed=1` shows confetti (skipped for reduced motion) |
+| `/orders/[orderNumber]` | Order confirmation / details. Visible to the order's owner, OWNER/STAFF, or a guest holding the signed `?t=` link. Shows **Awaiting payment** (dynamic UPI QR + UTR form), **Verifying payment** or **Paid**. `?placed=1` shows confetti (skipped for reduced motion) |
+| `/admin/payments` | OWNER/STAFF only (404 for everyone else): verify submitted UPI payments (confirm / reject), customers yet to pay, recent decisions |
 | `/policies/{privacy,terms,refunds,shipping}` | Stub policy pages ("content coming soon"), `noindex` |
 | `/api/products` | JSON catalogue (`productCount`, `variantCount`, `samplePrices`, `products[]`) |
 | `/catalogue` | 308 redirect to `/shop` (Module 1 page retired) |
@@ -102,7 +103,7 @@ same code runs in Server Actions and in tests). Next.js glue (cookies, headers) 
 | `lib/session.ts` | DB sessions (create / find / revoke / revoke-all) |
 | `lib/validation.ts` | zod schemas: phone, address (Indian states/UTs list), profile, checkout, coupon code, safe `next` redirect |
 | `lib/tokens.ts` | HMAC signing (cart cookie, guest order links), constant-time compare |
-| `src/proxy.ts` | Optimistic redirect of `/account/**` to `/login?next=…` when there's no session cookie |
+| `src/proxy.ts` | Optimistic redirect of `/account/**` and `/admin/**` to `/login?next=…` when there's no session cookie |
 
 ### Flows
 
@@ -154,7 +155,7 @@ same code runs in Server Actions and in tests). Next.js glue (cookies, headers) 
 
 ### Tests
 
-`npm test` runs Vitest (53 tests):
+`npm test` runs Vitest (53 tests in Module 3; 76 with Module 4):
 - `tests/unit/pricing.test.ts`: fees, thresholds, percent/flat coupons, caps, dates, limits.
 - `tests/unit/otp.test.ts`: OTP hashing, rate-limit window maths, SMS production guard, phone/address validation, safe redirects.
 - `tests/integration/orders.test.ts` (Postgres): pricing + stock decrement + snapshots, **12 concurrent checkouts for 5
@@ -168,14 +169,83 @@ Integration tests use `TEST_DATABASE_URL` (a separate database; migrations are a
 
 ### Hooks left for later modules
 
-- **Module 4 (Razorpay)**: each online order already has a `Payment` row (`provider=razorpay`, `status=CREATED`,
-  amount). Create the Razorpay order from it, verify signature/webhook, set `CAPTURED` and move the order to
-  `CONFIRMED`. The order page has a disabled "Pay" button to wire up. `releaseExpiredOrders` skips orders with an
-  authorised/captured payment.
+- **Module 4**: done as direct UPI, see below. Razorpay remains a provider value for later.
 - **Module 5 (Admin)**: `revokeAllSessions`, `AuditLog`, coupons table (sample coupons are marked `[SAMPLE]`),
   `FEATURE_COD`, delivery-fee env vars.
 - **Module 6 (Shipping/notifications)**: implement `msg91`/`twilio` in `src/lib/sms/index.ts` (interface `SmsProvider`),
   send order confirmations after `placeOrder`, create `Shipment` rows.
+
+## Module 4: direct UPI payments (manual verification)
+
+Online payment starts as **direct UPI to the shop's own UPI ID**. There is no payment gateway, so a person checks each
+payment in the bank app and confirms it. The design keeps Razorpay as a drop-in later.
+
+### Flow
+
+1. **Checkout**: the "Pay by UPI" option (`ONLINE_PAYMENT_PROVIDER=upi`) places the order as `PENDING` with
+   `paymentMethod=UPI`, a `Payment` row (`provider=upi`, `status=CREATED`, amount, snapshot of the UPI ID paid to) and
+   `Order.paymentDueAt = now + UPI_PAYMENT_WINDOW_MINUTES` (default 24 h). Stock is reserved as before.
+2. **Pay** (order page, `components/payments/upi-pay-panel.tsx`): a **per-order QR rendered on the server** (SVG, `qrcode`)
+   for `upi://pay?pa=<UPI_VPA>&pn=<UPI_PAYEE_NAME>&am=<exact total>&cu=INR&tn=<order no.>&tr=<order no.>`. The amount is
+   formatted from the order's stored `totalInPaise`, the same number the server charged. Also shown: a **"Pay ₹X with UPI
+   app"** deep link (mobile only), the amount and order number in large type, the UPI ID with a **Copy** button, the
+   alternate ID, and a collapsed **static QR fallback** (`public/images/payments/upi-static-qr.jpg`, with instructions
+   to type the amount and the order number as the note).
+3. **Submit UTR**: the customer enters the 12-digit UTR / UPI reference (spaces and dashes are ignored). The payment
+   moves to `PENDING_VERIFICATION` and the page shows **Verifying payment** (it refreshes itself every 30 s).
+   No screenshot upload.
+4. **Verify** (`/admin/payments`): OWNER/STAFF see each submission (order, customer, phone, amount, UTR with Copy, time,
+   UPI ID, items).
+   - **Confirm payment** needs the tick box "I found ₹X with UTR … in the bank account". The payment becomes `CAPTURED`
+     and the order `CONFIRMED`; the confirming user and time are stored (`Payment.verifiedById/verifiedAt`) and audited.
+   - **Reject** needs a reason, which the customer sees, and one of two follow-ups:
+     - *Ask to pay / re-enter*: a fresh `CREATED` attempt is opened and the payment window restarts.
+     - *Cancel the order*: stock and coupon use are released.
+5. **Customer sees Paid**, with the UTR and confirmation time.
+
+### Rules and safeguards
+
+- **State machine** (`lib/payments/upi.ts`): `CREATED → PENDING_VERIFICATION → CAPTURED | REJECTED`. Every transition locks
+  the order row (`SELECT … FOR UPDATE`), so submit, confirm, reject and the expiry job can't interleave. Double confirm,
+  confirm after expiry, and submitting twice are refused.
+- **UTR**: exactly 12 digits; **unique across all orders** (DB unique index, also checked in the transaction, so two
+  concurrent submissions of one UTR can't both win). A rejected UTR stays recorded and **can't be reused**.
+- **Rate limit**: 5 UTR submissions per order and 15 per IP per hour (counted from `AuditLog`, including failed attempts).
+- **Who can verify**: only active OWNER/STAFF, checked again in the service (not just the page). Customers, guests and
+  inactive staff get `forbidden`.
+- **Expiry** (`npm run orders:release-expired`): unpaid orders are released once `paymentDueAt` passes (UPI: 24 h by
+  default; Razorpay/legacy rows: `PENDING_ORDER_TTL_MINUTES`). Orders with a **submitted UTR are never auto-cancelled**.
+  Staff decide.
+- **Audit log**: `payment.utr_submit_attempt`, `payment.utr_submitted`, `payment.upi_confirmed`, `payment.upi_rejected`,
+  `order.cancelled_payment_rejected`, `order.expired_stock_released`.
+- **Config, not code**: the UPI ID, alternate ID and payee name come from env (`UPI_VPA`, `UPI_VPA_ALT`, `UPI_PAYEE_NAME`).
+  If they're missing, UPI is not offered at checkout.
+- `UPI_INCLUDE_TR=false` drops the `tr` parameter. Some UPI apps are stricter about `tr` on personal (non-merchant) UPI
+  IDs, so do a live ₹1 test with GPay, PhonePe and Paytm before launch.
+
+### Adding Razorpay later
+
+Each attempt is a `Payment` row with a `provider` (`upi` | `razorpay` | `cod`). `onlinePaymentProvider()` in
+`lib/config.ts` picks the checkout method. For Razorpay:
+- set `ONLINE_PAYMENT_PROVIDER=razorpay`;
+- create the gateway order from the `CREATED` row;
+- verify the signature/webhook and set `CAPTURED`, then `CONFIRMED`.
+
+The order page already has an `awaitingRazorpay` branch, and the expiry job and `paymentView()` work for either provider.
+
+### Tests
+
+`npm test` now runs **76 tests**. New:
+- `tests/unit/upi.test.ts`: amount formatting, URI building/encoding, `tr` toggle, UTR normalisation, `paymentView`,
+  config parsing.
+- `tests/integration/upi.test.ts` (Postgres):
+  - QR amount equals the server order total;
+  - full CREATED → VERIFYING → PAID path with audit;
+  - double confirm; malformed and duplicate UTRs (including two concurrent submissions);
+  - rate limit; unauthorised confirm (customer, anonymous, inactive staff);
+  - reject → retry (new attempt, old UTR blocked, window reset) and reject → cancel (stock back);
+  - expiry: unpaid released, submitted never released, fresh not yet released;
+  - the expiry-vs-submit race; no confirming of expired orders.
 
 ## Environment variables
 
@@ -196,7 +266,13 @@ See `.env.example`. **Never commit `.env`** (it is git-ignored).
 | `DELIVERY_FEE_PAISE` | no | Flat delivery fee (default `4900` = ₹49) |
 | `FREE_DELIVERY_THRESHOLD_PAISE` | no | Free delivery when subtotal − discount ≥ this (default `49900` = ₹499; `0` = always free) |
 | `FEATURE_COD` | no | `true` shows Cash on Delivery at checkout (default **off**) |
-| `PENDING_ORDER_TTL_MINUTES` | no | How long unpaid online orders hold stock (default `30`) |
+| `PENDING_ORDER_TTL_MINUTES` | no | How long unpaid **Razorpay** online orders hold stock (default `30`) |
+| `ONLINE_PAYMENT_PROVIDER` | no | `upi` (default, direct UPI with manual verification) or `razorpay` (later) |
+| `UPI_VPA` | for UPI | Shop UPI ID that customers pay to (e.g. `name@okhdfcbank`) |
+| `UPI_VPA_ALT` | no | Alternate UPI ID for the same account, shown as a fallback |
+| `UPI_PAYEE_NAME` | for UPI | Payee name in the UPI link (should match the bank account name) |
+| `UPI_PAYMENT_WINDOW_MINUTES` | no | How long an unpaid UPI order holds stock (default `1440` = 24 h, minimum 5) |
+| `UPI_INCLUDE_TR` | no | `false` omits the `tr` reference parameter from the UPI link (default `true`) |
 | `TEST_DATABASE_URL` | tests | Separate database for integration tests (must differ from `DATABASE_URL`) |
 | `RAZORPAY_*`, `SHIPROCKET_*`, `CLOUDINARY_*`, `RESEND_API_KEY` | later modules | Placeholders only |
 
@@ -217,7 +293,7 @@ auth without them**. The OWNER user is created **without a password** and signs 
 | `npm run db:reset` | Drop, re-migrate and re-seed the local DB |
 | `npm run db:studio` | Prisma Studio |
 | `npm test` | Vitest: unit tests + Postgres integration tests (needs `TEST_DATABASE_URL`; migrations are applied to it automatically) |
-| `npm run orders:release-expired` | Cancel unpaid online orders older than `PENDING_ORDER_TTL_MINUTES` and return their stock (for a cron) |
+| `npm run orders:release-expired` | Cancel unpaid online orders past their payment window and return their stock (never touches orders with a submitted UTR). Run from a cron every ~5 min |
 
 ## Schema overview (`prisma/schema.prisma`)
 

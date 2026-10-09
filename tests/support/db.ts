@@ -11,7 +11,7 @@ export function testClient() {
 /** Wipe every table touched by the tests (order matters for FKs; CASCADE handles the rest). */
 export async function resetDb(db: PrismaClient) {
   await db.$executeRawUnsafe(
-    `TRUNCATE "OrderItem","Payment","Order","CartItem","Cart","Coupon","ProductVariant","ProductImage","Product","Category","Session","OtpCode","Address","AuditLog","User" RESTART IDENTITY CASCADE`,
+    `TRUNCATE "OrderItem","Payment","Order","CartItem","Cart","Coupon","ProductVariant","ProductImage","Product","Category","Session","OtpCode","Address","AuditLog","Notification","User" RESTART IDENTITY CASCADE`,
   );
 }
 

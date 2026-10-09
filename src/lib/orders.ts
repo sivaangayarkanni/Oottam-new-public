@@ -15,6 +15,7 @@ import type { DeliveryRule } from "./config";
 import type { Db, Tx } from "./db";
 import { computeTotals, type CouponLike, type Totals } from "./pricing";
 import { loadCart, type CartView } from "./cart";
+import { notificationCopy, notifyStaff } from "./notifications";
 
 export type AddressSnapshot = {
   fullName: string;
@@ -235,6 +236,18 @@ export async function placeOrder(db: Db, input: PlaceOrderInput): Promise<Placed
           },
         });
 
+        await notifyStaff(tx, {
+          ...notificationCopy.orderPlaced({
+            orderNumber,
+            customerName: input.contact.name,
+            totalInPaise: totals.totalInPaise,
+            paymentMethod: input.paymentMethod,
+            itemCount: lines.reduce((n, { item }) => n + item.quantity, 0),
+          }),
+          orderId: order.id,
+          orderNumber,
+        });
+
         await tx.cartItem.deleteMany({ where: { cartId: input.cartId } });
         await tx.cart.update({ where: { id: input.cartId }, data: { couponId: null } });
 
@@ -287,6 +300,15 @@ export async function cancelAndReleaseStock(
   if (order.couponId) {
     await tx.$executeRaw`UPDATE "Coupon" SET "usedCount" = GREATEST("usedCount" - 1, 0) WHERE id = ${order.couponId}`;
   }
+  await notifyStaff(tx, {
+    ...notificationCopy.orderCancelled({
+      orderNumber: order.orderNumber,
+      reason: opts.reason,
+      expired: opts.auditAction.includes("expired"),
+    }),
+    orderId,
+    orderNumber: order.orderNumber,
+  });
   await tx.payment.updateMany({
     where: { orderId, status: "CREATED" },
     data: { status: "FAILED", errorCode: "EXPIRED", errorDescription: opts.reason },

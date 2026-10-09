@@ -93,13 +93,14 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  addresses        Address[]
-  carts            Cart[]
-  orders           Order[]
-  reviews          Review[]
-  auditLogs        AuditLog[] @relation("AuditActor")
-  sessions         Session[]
-  verifiedPayments Payment[]  @relation("PaymentVerifier")
+  addresses         Address[]
+  carts             Cart[]
+  orders            Order[]
+  reviews           Review[]
+  auditLogs         AuditLog[]     @relation("AuditActor")
+  sessions          Session[]
+  verifiedPayments  Payment[]      @relation("PaymentVerifier")
+  readNotifications Notification[] @relation("NotificationReader")
 
   @@index([role])
   @@index([createdAt])
@@ -309,12 +310,13 @@ model Order {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  coupon    Coupon?     @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  items     OrderItem[]
-  payments  Payment[]
-  shipments Shipment[]
-  reviews   Review[]
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  coupon        Coupon?        @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  notifications Notification[]
+  payments      Payment[]
+  shipments     Shipment[]
+  reviews       Review[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -507,4 +509,27 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// In-app alerts for OWNER/STAFF (new order, UTR submitted, order cancelled/expired).
+/// Written in the same transaction as the event. Read state is shared by the whole team.
+model Notification {
+  id           String    @id @default(cuid())
+  type         String // "order.placed" | "payment.utr_submitted" | "order.cancelled" | "order.expired"
+  title        String
+  body         String
+  orderId      String?
+  orderNumber  String?
+  createdAt    DateTime  @default(now())
+  readAt       DateTime?
+  readById     String?
+  /// Set once outbound alerts (email / Telegram) were attempted, so each is sent at most once.
+  dispatchedAt DateTime?
+
+  order  Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  readBy User?  @relation("NotificationReader", fields: [readById], references: [id], onDelete: SetNull)
+
+  @@index([readAt, createdAt])
+  @@index([createdAt])
+  @@index([dispatchedAt, createdAt])
 }

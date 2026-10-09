@@ -12,6 +12,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import type { Db } from "../db";
 import { cancelAndReleaseStock, lockOrder } from "../orders";
+import { notificationCopy, notifyStaff } from "../notifications";
 
 export class PaymentError extends Error {
   constructor(
@@ -163,6 +164,16 @@ export async function submitUpiReference(
           ipAddress: opts.ip ?? null,
           after: { orderNumber: order.orderNumber, utr, amountInPaise: payment.amountInPaise },
         },
+      });
+      await notifyStaff(tx, {
+        ...notificationCopy.utrSubmitted({
+          orderNumber: order.orderNumber,
+          customerName: order.customerName,
+          amountInPaise: payment.amountInPaise,
+          utr,
+        }),
+        orderId: order.id,
+        orderNumber: order.orderNumber,
       });
       return payment;
     });

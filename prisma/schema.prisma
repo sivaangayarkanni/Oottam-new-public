@@ -36,15 +36,18 @@ enum OrderStatus {
 enum PaymentMethod {
   RAZORPAY
   COD
+  UPI // direct UPI transfer to the shop's VPA, confirmed manually by OWNER/STAFF
 }
 
 enum PaymentStatus {
-  CREATED // Razorpay order created, awaiting payment
+  CREATED // awaiting payment (Razorpay order created / UPI QR shown)
+  PENDING_VERIFICATION // UPI: customer submitted a UTR, staff must check the bank statement
   AUTHORIZED
   CAPTURED
   FAILED
   REFUNDED
   PARTIALLY_REFUNDED
+  REJECTED // UPI: staff could not match the UTR / amount
 }
 
 enum CouponType {
@@ -90,12 +93,13 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  addresses Address[]
-  carts     Cart[]
-  orders    Order[]
-  reviews   Review[]
-  auditLogs AuditLog[] @relation("AuditActor")
-  sessions  Session[]
+  addresses        Address[]
+  carts            Cart[]
+  orders           Order[]
+  reviews          Review[]
+  auditLogs        AuditLog[] @relation("AuditActor")
+  sessions         Session[]
+  verifiedPayments Payment[]  @relation("PaymentVerifier")
 
   @@index([role])
   @@index([createdAt])
@@ -270,6 +274,8 @@ model Order {
   idempotencyKey  String?       @unique
   /// Set when reserved stock was returned (e.g. unpaid PENDING order timed out)
   stockReleasedAt DateTime?
+  /// Unpaid online orders are cancelled (stock released) after this moment. Null = legacy TTL rule.
+  paymentDueAt    DateTime?
   userId          String? // null for guest orders
   status          OrderStatus   @default(PENDING)
   paymentMethod   PaymentMethod @default(RAZORPAY)
@@ -358,14 +364,26 @@ model Payment {
   /// Raw verified webhook payload(s) for audit/debugging
   rawWebhookPayload  Json?
   lastWebhookEventId String?       @unique // idempotency for webhook events
+  /// UPI: payee VPA the customer was asked to pay (snapshot of UPI_VPA at the time)
+  upiVpa             String?
+  /// UPI: 12-digit UTR / transaction reference entered by the customer. Unique across all orders.
+  utr                String?       @unique
+  submittedAt        DateTime?
+  submittedIp        String?
+  /// Manual verification (UPI): who confirmed/rejected and when
+  verifiedAt         DateTime?
+  verifiedById       String?
+  rejectionReason    String?
   capturedAt         DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  verifiedBy User? @relation("PaymentVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([status])
+  @@index([status, submittedAt])
 }
 
 model Coupon {

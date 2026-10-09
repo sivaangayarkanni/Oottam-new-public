@@ -17,7 +17,8 @@
     "db:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "orders:release-expired": "tsx scripts/release-expired-orders.ts"
+    "orders:release-expired": "tsx scripts/release-expired-orders.ts",
+    "vercel-build": "prisma generate && DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" prisma migrate deploy && DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" tsx prisma/seed.ts --if-empty && next build"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

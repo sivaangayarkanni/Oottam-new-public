@@ -291,6 +291,18 @@ Because a daily run is too slow on its own, expiry also runs **lazily**, throttl
 
 Stock from unpaid orders therefore frees up as soon as someone shops or an admin is online.
 
+## Deployment (Vercel + Neon)
+
+- **Production:** https://oottam-store.vercel.app. The Vercel project `oottam-store` is on the Hobby plan, with functions in `sin1` (Singapore). It uses Neon Postgres (free plan, `sin1`), added through the Vercel Marketplace.
+- **Build** (`vercel.json` → `npm run vercel-build`):
+  1. `prisma generate`.
+  2. `prisma migrate deploy`, using `DATABASE_URL_UNPOOLED`.
+  3. `seed --if-empty`: seeds the catalogue and sample coupons only on an empty database. Later deploys never overwrite prices or stock edited in production; the OWNER user is still ensured.
+  4. `next build`.
+- **Runtime** uses the pooled `DATABASE_URL`. All secrets live in Vercel env vars, never in git.
+- **Deploying:** run `vercel deploy --prod` from a copy without `.git`. The Hobby plan blocks CLI deploys whose git commit author isn't a member of the Vercel account. Alternatively, connect the GitHub repo in the Vercel dashboard; that needs a GitHub login connection on the Vercel account.
+- **Login codes:** until an SMS provider is configured, they are only written to Vercel function logs (`SMS_PROVIDER=dev` + `ALLOW_DEV_SMS_IN_PRODUCTION=true`). Customers can't receive them; guest checkout works without login. The owner signs in at `/admin/login`.
+
 ## Environment variables
 
 See `.env.example`. **Never commit `.env`** (it is git-ignored).

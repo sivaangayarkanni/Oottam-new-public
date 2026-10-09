@@ -1,4 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [{ "path": "/api/cron/release-expired", "schedule": "30 21 * * *" }]
+  "framework": "nextjs",
+  "buildCommand": "npm run vercel-build",
+  "regions": [
+    "sin1"
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/release-expired",
+      "schedule": "30 21 * * *"
+    }
+  ]
 }

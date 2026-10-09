@@ -274,6 +274,13 @@ async function seedCoupons() {
 }
 
 async function main() {
+  // `--if-empty` (used by the Vercel build): only seed a fresh database, so later deploys never overwrite
+  // prices, stock or coupons edited in production. The OWNER user is still ensured.
+  if (process.argv.includes("--if-empty") && (await prisma.product.count()) > 0) {
+    const owner = await seedOwner();
+    console.log(`ℹ️  Catalogue already present, skipping catalogue/coupons${owner ? `; OWNER ensured (${owner.id})` : ""}.`);
+    return;
+  }
   const counts = await seedCatalogue();
   const owner = await seedOwner();
   const coupons = await seedCoupons();

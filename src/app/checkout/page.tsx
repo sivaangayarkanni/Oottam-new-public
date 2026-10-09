@@ -5,12 +5,15 @@ import { quoteCheckout } from "@/lib/orders";
 import { randomToken } from "@/lib/tokens";
 import { getCurrentUser } from "@/server/auth";
 import { currentCartId } from "@/server/cart";
+import { releaseExpiredNow } from "@/server/background";
 import { CheckoutForm } from "@/components/checkout/checkout-form";
 import { EmptyCart } from "@/components/cart/empty-cart";
 
 export const metadata: Metadata = { title: "Checkout", robots: { index: false } };
 
 export default async function CheckoutPage() {
+  // Lazy expiry: free stock held by unpaid orders before quoting (throttled; the daily cron is the backstop).
+  await releaseExpiredNow().catch((err) => console.error("[expiry] lazy release failed", err));
   const user = await getCurrentUser();
   const [quote, addresses] = await Promise.all([
     quoteCheckout(prisma, { cartId: await currentCartId(), userId: user?.id, phone: user?.phone, rule: getDeliveryRule() }),

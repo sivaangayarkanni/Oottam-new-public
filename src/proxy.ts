@@ -5,9 +5,11 @@ import { NextResponse, type NextRequest } from "next/server";
  * The authoritative check (valid, unrevoked session in the DB) happens in each page via requireUser().
  */
 export function proxy(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  if (path === "/admin/login") return NextResponse.next();
   if (!request.cookies.has("oottam_session")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = path.startsWith("/admin") ? "/admin/login" : "/login";
     url.search = `?next=${encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)}`;
     return NextResponse.redirect(url);
   }

@@ -12,6 +12,7 @@ import { checkoutSchema, couponCodeSchema, fieldErrors } from "@/lib/validation"
 import { orderAccessToken } from "@/lib/tokens";
 import { getCurrentUser } from "@/server/auth";
 import { currentCartId } from "@/server/cart";
+import { scheduleBackgroundJobs } from "@/server/background";
 
 export type QuoteResult = { cart: CartView; totals: Totals; couponError?: string };
 
@@ -155,6 +156,7 @@ export async function placeOrderAction(_prev: PlaceOrderState, formData: FormDat
   }
 
   revalidatePath("/", "layout");
+  scheduleBackgroundJobs({ release: false });
   const token = user ? "" : `&t=${orderAccessToken(placed.orderNumber)}`;
   redirect(`/orders/${placed.orderNumber}?placed=1${token}`);
 }

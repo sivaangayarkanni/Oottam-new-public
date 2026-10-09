@@ -8,6 +8,7 @@ import { confirmUpiPayment, PaymentError, rejectUpiPayment, submitUpiReference }
 import { getCurrentUser } from "@/server/auth";
 import { canViewOrder } from "@/server/orders";
 import { clientIp } from "@/server/request";
+import { scheduleBackgroundJobs } from "@/server/background";
 
 // Server Actions are POST-only with Next.js' Origin/Host check (CSRF), see README.
 
@@ -28,6 +29,7 @@ export async function submitUtrAction(_prev: UtrState, formData: FormData): Prom
   }
   revalidatePath(`/orders/${order.orderNumber}`);
   revalidatePath("/admin/payments");
+  scheduleBackgroundJobs({ release: false });
   return { ok: true };
 }
 
@@ -69,5 +71,6 @@ export async function rejectPaymentAction(_prev: VerifyState, formData: FormData
   }
   revalidatePath("/admin/payments");
   revalidatePath(`/orders/${orderNumber}`);
+  scheduleBackgroundJobs({ release: false });
   redirect(`/admin/payments?done=${then === "cancel" ? "cancelled" : "rejected"}&order=${encodeURIComponent(orderNumber)}`);
 }

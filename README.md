@@ -54,6 +54,9 @@ npm run dev                 # http://localhost:3000
 | `/account/addresses/new`, `/account/addresses/[id]` | Address form (zod-validated) |
 | `/checkout` | Guest (phone + address) or logged-in (saved addresses) checkout, coupon, server-computed totals, payment placeholder, optional COD |
 | `/orders/[orderNumber]` | Order confirmation / details. Visible to the order's owner, OWNER/STAFF, or a guest holding the signed `?t=` link. Shows **Awaiting payment** (dynamic UPI QR + UTR form), **Verifying payment** or **Paid**. `?placed=1` shows confetti (skipped for reduced motion) |
+| `/admin` | OWNER/STAFF dashboard: counts (payments to check, awaiting payment, unread notifications, last 24 h) and latest orders |
+| `/admin/login` | Owner password sign-in (`ADMIN_ACCESS_PASSWORD`) while SMS login codes aren't set up |
+| `/admin/notifications` | Staff notifications (new order, UTR submitted, cancelled/expired), mark one / all read |
 | `/admin/payments` | OWNER/STAFF only (404 for everyone else): verify submitted UPI payments (confirm / reject), customers yet to pay, recent decisions |
 | `/policies/{privacy,terms,refunds,shipping}` | Stub policy pages ("content coming soon"), `noindex` |
 | `/api/products` | JSON catalogue (`productCount`, `variantCount`, `samplePrices`, `products[]`) |
@@ -235,7 +238,7 @@ The order page already has an `awaitingRazorpay` branch, and the expiry job and 
 
 ### Tests
 
-`npm test` now runs **76 tests**. New:
+`npm test` now runs **92 tests** (76 at Module 4; notifications and owner sign-in add `tests/unit/notifications.test.ts` and `tests/integration/notifications.test.ts`). New:
 - `tests/unit/upi.test.ts`: amount formatting, URI building/encoding, `tr` toggle, UTR normalisation, `paymentView`,
   config parsing.
 - `tests/integration/upi.test.ts` (Postgres):
@@ -246,6 +249,47 @@ The order page already has an `awaitingRazorpay` branch, and the expiry job and 
   - reject → retry (new attempt, old UTR blocked, window reset) and reject → cancel (stock back);
   - expiry: unpaid released, submitted never released, fresh not yet released;
   - the expiry-vs-submit race; no confirming of expired orders.
+
+## Admin notifications, owner sign-in and scheduled expiry
+
+### Notifications
+- A `Notification` row is written **in the same transaction** as the event:
+  - a new order (`order.placed`);
+  - a UTR submitted by a customer (`payment.utr_submitted`);
+  - an order cancelled by staff (`order.cancelled`) or expired unpaid (`order.expired`).
+
+  A failed or rolled-back action never leaves a stray notification. Read state is shared by the team, and the reader and time are stored.
+- Every admin page has a dark **admin bar** with a bell and an unread badge. It polls `/api/admin/notifications` every
+  20 s while the tab is visible and refreshes the page data when something new arrives.
+- **Alerts on** (button in the bar) asks for browser notification permission. After that, each new notification plays a short chime and shows a desktop notification while an admin tab is open.
+- **Outbound alerts** (optional, no account needed to run without them):
+  - Email via Resend (`RESEND_API_KEY` + `ADMIN_ALERT_EMAIL`).
+  - Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`).
+
+  How they behave:
+  - They run after the response (`after()`), so they never slow down or break checkout.
+  - Each notification is claimed once (`dispatchedAt`), so it is never sent twice.
+  - Only the last hour is sent, so turning a channel on later doesn't replay history.
+  - Failures are logged and ignored.
+
+### Owner sign-in without SMS
+`/admin/login` takes `ADMIN_ACCESS_PASSWORD` and starts a normal session for the active OWNER (preferably the one with
+`SEED_OWNER_PHONE`).
+- **Disabled** unless the password is set and is 16+ characters.
+- Uses a constant-time comparison.
+- Allows **5 failures per IP per 15 min** and **30 failures site-wide per hour**.
+- Every attempt is audited.
+
+Once an SMS provider is live, remove the variable to turn this off.
+
+### Expiry schedule
+`vercel.json` runs a **daily Vercel Cron** (21:30 UTC = 03:00 IST, the Hobby plan limit) against
+`/api/cron/release-expired`, which requires `Authorization: Bearer $CRON_SECRET`.
+Because a daily run is too slow on its own, expiry also runs **lazily**, throttled to once per 2 min per server instance:
+- before the checkout page quotes;
+- on every admin page load and bell poll.
+
+Stock from unpaid orders therefore frees up as soon as someone shops or an admin is online.
 
 ## Environment variables
 
@@ -274,7 +318,11 @@ See `.env.example`. **Never commit `.env`** (it is git-ignored).
 | `UPI_PAYMENT_WINDOW_MINUTES` | no | How long an unpaid UPI order holds stock (default `1440` = 24 h, minimum 5) |
 | `UPI_INCLUDE_TR` | no | `false` omits the `tr` reference parameter from the UPI link (default `true`) |
 | `TEST_DATABASE_URL` | tests | Separate database for integration tests (must differ from `DATABASE_URL`) |
-| `RAZORPAY_*`, `SHIPROCKET_*`, `CLOUDINARY_*`, `RESEND_API_KEY` | later modules | Placeholders only |
+| `ADMIN_ACCESS_PASSWORD` | no | Owner password sign-in at `/admin/login` (≥16 chars; empty = off) |
+| `CRON_SECRET` | **prod** | Bearer secret for the Vercel Cron expiry route (≥16 chars) |
+| `RESEND_API_KEY`, `ADMIN_ALERT_EMAIL`, `ALERT_EMAIL_FROM` | no | Email alerts for staff (all optional) |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | no | Telegram alerts for staff |
+| `RAZORPAY_*`, `SHIPROCKET_*`, `CLOUDINARY_*` | later modules | Placeholders only |
 
 In development `AUTH_SECRET`/`OTP_HASH_SECRET` fall back to a clearly-labelled dev value; **production refuses to start
 auth without them**. The OWNER user is created **without a password** and signs in with phone OTP like everyone else.

@@ -48,8 +48,8 @@ export default async function AccountPage() {
         </div>
         <div className="flex flex-wrap gap-2">
         {isStaff(user) && (
-          <Link href="/admin/payments" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-leaf px-5 font-bold text-white transition hover:bg-leaf-deep">
-            Verify UPI payments
+          <Link href="/admin" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-leaf px-5 font-bold text-white transition hover:bg-leaf-deep">
+            Admin: orders &amp; payments
           </Link>
         )}
         <form action={logoutAction}>

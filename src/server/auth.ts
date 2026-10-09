@@ -24,7 +24,8 @@ export async function requireUser(nextPath: string) {
 
 /** OWNER/STAFF-only pages (minimal admin until Module 5). Non-staff get a 404, not a hint. */
 export async function requireStaff(nextPath: string) {
-  const user = await requireUser(nextPath);
+  const user = await getCurrentUser();
+  if (!user) redirect(`/admin/login?next=${encodeURIComponent(nextPath)}`);
   if (user.role !== "OWNER" && user.role !== "STAFF") notFound();
   return user;
 }

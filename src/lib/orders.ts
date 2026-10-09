@@ -84,7 +84,11 @@ export type PlaceOrderInput = {
   contact: { name: string; phone: string; email?: string | null };
   shippingAddress: AddressSnapshot;
   couponCode?: string | null;
-  paymentMethod: "RAZORPAY" | "COD";
+  paymentMethod: "RAZORPAY" | "COD" | "UPI";
+  /** UPI only: payee VPA snapshot stored on the Payment row. */
+  upiVpa?: string | null;
+  /** When an unpaid online order should release its stock (null = legacy TTL rule). */
+  paymentDueAt?: Date | null;
   notes?: string | null;
   /** Total the customer saw; if prices changed meanwhile we stop and show the new total. */
   expectedTotalInPaise?: number;
@@ -189,6 +193,7 @@ export async function placeOrder(db: Db, input: PlaceOrderInput): Promise<Placed
             status: isCod ? "CONFIRMED" : "PENDING",
             confirmedAt: isCod ? now : null,
             paymentMethod: input.paymentMethod,
+            paymentDueAt: isCod ? null : (input.paymentDueAt ?? null),
             customerName: input.contact.name,
             customerPhone: input.contact.phone,
             customerEmail: input.contact.email ?? null,
@@ -218,12 +223,13 @@ export async function placeOrder(db: Db, input: PlaceOrderInput): Promise<Placed
                 lineTotalInPaise: v.priceInPaise * item.quantity,
               })),
             },
-            // Module 4 hook: Razorpay order id / capture get attached to this row.
+            // One Payment row per attempt. Provider-specific data (UPI UTR, Razorpay ids) lives on it.
             payments: {
               create: {
-                provider: isCod ? "cod" : "razorpay",
+                provider: isCod ? "cod" : input.paymentMethod === "UPI" ? "upi" : "razorpay",
                 status: "CREATED",
                 amountInPaise: totals.totalInPaise,
+                upiVpa: input.paymentMethod === "UPI" ? (input.upiVpa ?? null) : null,
               },
             },
           },
@@ -251,24 +257,75 @@ export async function placeOrder(db: Db, input: PlaceOrderInput): Promise<Placed
   }
 }
 
+/** Payment states that mean "money may already have moved", so the order must never auto-cancel. */
+export const PROTECTED_PAYMENT_STATUSES = ["PENDING_VERIFICATION", "AUTHORIZED", "CAPTURED"] as const;
+
+/** Lock an order row for the rest of the transaction (serialises UTR submit / verify / expiry). */
+export async function lockOrder(tx: Tx, orderId: string) {
+  await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${orderId} FOR UPDATE`;
+}
+
 /**
- * Release stock held by online-payment orders that stayed PENDING (unpaid) longer than `ttlMinutes`.
- * Safe to run repeatedly/concurrently: each order is claimed with a guarded update, so stock is
- * returned exactly once. Intended to be called by a scheduler (cron) every few minutes.
+ * Cancel a PENDING order and give its stock + coupon use back. Caller must hold the order lock.
+ * Returns false if the order was no longer PENDING / already released.
+ */
+export async function cancelAndReleaseStock(
+  tx: Tx,
+  orderId: string,
+  opts: { reason: string; now: Date; actorId?: string | null; auditAction: string },
+): Promise<boolean> {
+  const claimed = await tx.order.updateMany({
+    where: { id: orderId, status: "PENDING", stockReleasedAt: null },
+    data: { status: "CANCELLED", cancelledAt: opts.now, cancelReason: opts.reason, stockReleasedAt: opts.now },
+  });
+  if (claimed.count !== 1) return false;
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
+  for (const item of order.items) {
+    if (!item.variantId) continue;
+    await tx.productVariant.update({ where: { id: item.variantId }, data: { stock: { increment: item.quantity } } });
+  }
+  if (order.couponId) {
+    await tx.$executeRaw`UPDATE "Coupon" SET "usedCount" = GREATEST("usedCount" - 1, 0) WHERE id = ${order.couponId}`;
+  }
+  await tx.payment.updateMany({
+    where: { orderId, status: "CREATED" },
+    data: { status: "FAILED", errorCode: "EXPIRED", errorDescription: opts.reason },
+  });
+  await tx.auditLog.create({
+    data: {
+      actorId: opts.actorId ?? null,
+      action: opts.auditAction,
+      entityType: "Order",
+      entityId: orderId,
+      after: { status: "CANCELLED", reason: opts.reason },
+    },
+  });
+  return true;
+}
+
+/**
+ * Release stock held by unpaid online orders (Razorpay or UPI).
+ *
+ * An order expires when `paymentDueAt` has passed (set per provider at checkout; UPI gets a longer
+ * window), or, for legacy rows without `paymentDueAt`, when it is older than `ttlMinutes`.
+ * Orders with a submitted UPI reference (PENDING_VERIFICATION) or an authorised/captured payment
+ * are NEVER auto-cancelled; staff decide those. Each order is re-checked under a row lock, so a
+ * UTR submitted at the last second wins, and stock is returned exactly once even if several
+ * schedulers run in parallel.
  */
 export async function releaseExpiredOrders(
   db: Db,
   opts: { ttlMinutes: number; now?: Date; limit?: number },
 ): Promise<{ released: string[] }> {
   const now = opts.now ?? new Date();
-  const cutoff = new Date(now.getTime() - opts.ttlMinutes * 60_000);
+  const legacyCutoff = new Date(now.getTime() - opts.ttlMinutes * 60_000);
   const candidates = await db.order.findMany({
     where: {
       status: "PENDING",
-      paymentMethod: "RAZORPAY",
+      paymentMethod: { in: ["RAZORPAY", "UPI"] },
       stockReleasedAt: null,
-      placedAt: { lt: cutoff },
-      payments: { none: { status: { in: ["AUTHORIZED", "CAPTURED"] } } },
+      OR: [{ paymentDueAt: { lt: now } }, { paymentDueAt: null, placedAt: { lt: legacyCutoff } }],
+      payments: { none: { status: { in: [...PROTECTED_PAYMENT_STATUSES] } } },
     },
     select: { id: true, orderNumber: true },
     orderBy: { placedAt: "asc" },
@@ -278,32 +335,16 @@ export async function releaseExpiredOrders(
   const released: string[] = [];
   for (const c of candidates) {
     const done = await db.$transaction(async (tx) => {
-      const claimed = await tx.order.updateMany({
-        where: { id: c.id, status: "PENDING", stockReleasedAt: null },
-        data: {
-          status: "CANCELLED",
-          cancelledAt: now,
-          cancelReason: `Payment not received within ${opts.ttlMinutes} minutes`,
-          stockReleasedAt: now,
-        },
+      await lockOrder(tx, c.id);
+      const protectedPayment = await tx.payment.count({
+        where: { orderId: c.id, status: { in: [...PROTECTED_PAYMENT_STATUSES] } },
       });
-      if (claimed.count !== 1) return false;
-      const order = await tx.order.findUniqueOrThrow({ where: { id: c.id }, include: { items: true } });
-      for (const item of order.items) {
-        if (!item.variantId) continue;
-        await tx.productVariant.update({ where: { id: item.variantId }, data: { stock: { increment: item.quantity } } });
-      }
-      if (order.couponId) {
-        await tx.$executeRaw`UPDATE "Coupon" SET "usedCount" = GREATEST("usedCount" - 1, 0) WHERE id = ${order.couponId}`;
-      }
-      await tx.payment.updateMany({
-        where: { orderId: c.id, status: "CREATED" },
-        data: { status: "FAILED", errorCode: "EXPIRED", errorDescription: "Payment window expired" },
+      if (protectedPayment > 0) return false;
+      return cancelAndReleaseStock(tx, c.id, {
+        reason: "Payment not received in time",
+        now,
+        auditAction: "order.expired_stock_released",
       });
-      await tx.auditLog.create({
-        data: { action: "order.expired_stock_released", entityType: "Order", entityId: c.id, after: { status: "CANCELLED" } },
-      });
-      return true;
     });
     if (done) released.push(c.orderNumber);
   }

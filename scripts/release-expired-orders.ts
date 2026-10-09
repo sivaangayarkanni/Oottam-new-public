@@ -22,7 +22,7 @@ async function main() {
     console.log(
       released.length
         ? `Released stock for ${released.length} expired order(s): ${released.join(", ")}`
-        : `No unpaid orders older than ${ttl} minutes.`,
+        : "No unpaid orders past their payment window.",
     );
   } finally {
     await prisma.$disconnect();

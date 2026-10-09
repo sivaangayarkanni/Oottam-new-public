@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { getDeliveryRule, isCodEnabled } from "@/lib/config";
+import { getDeliveryRule, getUpiConfig, isCodEnabled, onlinePaymentProvider } from "@/lib/config";
 import { quoteCheckout } from "@/lib/orders";
 import { randomToken } from "@/lib/tokens";
 import { getCurrentUser } from "@/server/auth";
@@ -43,6 +43,7 @@ export default async function CheckoutPage() {
               isDefault: a.isDefault,
             }))}
             codEnabled={isCodEnabled()}
+            onlineProvider={onlinePaymentProvider() === "upi" ? (getUpiConfig() ? "upi" : null) : "razorpay"}
             idempotencyKey={randomToken(18)}
           />
         )}

@@ -4,7 +4,8 @@ import { LogOut, MapPin, Package, Pencil, Plus, Star, Trash2, UserRound } from "
 import { prisma } from "@/lib/prisma";
 import { formatPaise } from "@/lib/money";
 import { formatIndianMobile } from "@/lib/phone";
-import { requireUser } from "@/server/auth";
+import { isStaff, requireUser } from "@/server/auth";
+import { paymentView } from "@/lib/payments/upi";
 import { logoutAction } from "@/app/actions/auth";
 import { deleteAddressAction, setDefaultAddressAction } from "@/app/actions/address";
 import { ProfileForm } from "@/components/account/profile-form";
@@ -24,7 +25,11 @@ export default async function AccountPage() {
       where: { userId: user.id },
       orderBy: { placedAt: "desc" },
       take: 20,
-      include: { _count: { select: { items: true } }, items: { take: 3, select: { productNameEn: true, quantity: true } } },
+      include: {
+        _count: { select: { items: true } },
+        items: { take: 3, select: { productNameEn: true, quantity: true } },
+        payments: { select: { status: true, createdAt: true } },
+      },
     }),
   ]);
   const firstName = user.name?.split(" ")[0];
@@ -41,11 +46,18 @@ export default async function AccountPage() {
             <h1 className="font-display text-5xl font-extrabold">My account</h1>
           </div>
         </div>
+        <div className="flex flex-wrap gap-2">
+        {isStaff(user) && (
+          <Link href="/admin/payments" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-leaf px-5 font-bold text-white transition hover:bg-leaf-deep">
+            Verify UPI payments
+          </Link>
+        )}
         <form action={logoutAction}>
           <button className="inline-flex min-h-11 items-center gap-2 rounded-full border-2 border-ink px-5 font-bold transition hover:bg-ink hover:text-white">
             <LogOut className="h-4 w-4" aria-hidden /> Log out
           </button>
         </form>
+        </div>
       </div>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-[1fr_1.35fr]">
@@ -141,7 +153,7 @@ export default async function AccountPage() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="font-display text-lg font-bold">{o.orderNumber}</p>
-                      <OrderStatusBadge status={o.status} />
+                      <OrderStatusBadge status={o.status === "PENDING" || o.status === "CONFIRMED" ? paymentView(o) : o.status} />
                     </div>
                     <p className="mt-1 text-sm text-ink-soft">
                       {o.placedAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })} ·{" "}

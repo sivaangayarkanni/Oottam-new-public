@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { getDeliveryRule, isCodEnabled } from "@/lib/config";
+import { getDeliveryRule, getUpiConfig, isCodEnabled, onlinePaymentProvider, pendingOrderTtlMinutes } from "@/lib/config";
 import { OrderError, placeOrder, quoteCheckout, type AddressSnapshot } from "@/lib/orders";
 import type { Totals } from "@/lib/pricing";
 import type { CartView } from "@/lib/cart";
@@ -95,6 +95,23 @@ export async function placeOrderAction(_prev: PlaceOrderState, formData: FormDat
   const phone = user?.phone ?? input.contactPhone;
   if (!phone) return { errors: { contactPhone: "Enter your mobile number" } };
 
+  // "Pay online" goes to the configured provider (direct UPI now; Razorpay later).
+  const now = new Date();
+  let paymentMethod: "COD" | "UPI" | "RAZORPAY" = "COD";
+  let upiVpa: string | null = null;
+  let paymentDueAt: Date | null = null;
+  if (input.paymentMethod === "ONLINE") {
+    const upi = onlinePaymentProvider() === "upi" ? getUpiConfig() : null;
+    if (upi) {
+      paymentMethod = "UPI";
+      upiVpa = upi.vpa;
+      paymentDueAt = new Date(now.getTime() + upi.windowMinutes * 60_000);
+    } else {
+      paymentMethod = "RAZORPAY";
+      paymentDueAt = new Date(now.getTime() + pendingOrderTtlMinutes() * 60_000);
+    }
+  }
+
   const expectedRaw = Number(formData.get("expectedTotal"));
   let placed;
   try {
@@ -105,7 +122,10 @@ export async function placeOrderAction(_prev: PlaceOrderState, formData: FormDat
       contact: { name: user?.name ?? snapshot.fullName, phone, email: input.email ?? user?.email ?? null },
       shippingAddress: snapshot,
       couponCode: input.couponCode ?? null,
-      paymentMethod: input.paymentMethod === "COD" ? "COD" : "RAZORPAY",
+      paymentMethod,
+      upiVpa,
+      paymentDueAt,
+      now,
       notes: input.notes ?? null,
       expectedTotalInPaise: Number.isInteger(expectedRaw) && expectedRaw > 0 ? expectedRaw : undefined,
       rule: getDeliveryRule(),

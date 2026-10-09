@@ -2,14 +2,17 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CreditCard, MapPin, Package, Phone } from "lucide-react";
+import { BadgeCheck, CreditCard, Hourglass, MapPin, Package, Phone, TriangleAlert } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { formatPaise } from "@/lib/money";
 import { formatIndianMobile } from "@/lib/phone";
-import { verifyOrderAccessToken } from "@/lib/tokens";
-import { pendingOrderTtlMinutes } from "@/lib/config";
+import { getUpiConfig, pendingOrderTtlMinutes } from "@/lib/config";
+import { paymentView, upiAmount } from "@/lib/payments/upi";
 import type { AddressSnapshot } from "@/lib/orders";
 import { getCurrentUser } from "@/server/auth";
+import { canViewOrder } from "@/server/orders";
+import { UpiPayPanel } from "@/components/payments/upi-pay-panel";
+import { AutoRefresh } from "@/components/payments/auto-refresh";
 import { Mascot, SpeechBubble } from "@/components/mascot";
 import { Confetti } from "@/components/confetti";
 import { OrderStatusBadge } from "@/components/account/order-status";
@@ -26,37 +29,69 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
   if (!/^OTM-\d{4}-\d{6,}$/.test(orderNumber)) notFound();
 
   const [order, user] = await Promise.all([
-    prisma.order.findUnique({ where: { orderNumber }, include: { items: true, payments: true } }),
+    prisma.order.findUnique({
+      where: { orderNumber },
+      include: { items: true, payments: { orderBy: { createdAt: "desc" } } },
+    }),
     getCurrentUser(),
   ]);
   // Owner, staff, or a guest holding the signed link. Anyone else gets a 404 (no existence leak).
-  const allowed =
-    !!order &&
-    ((user && order.userId === user.id) ||
-      (user && (user.role === "OWNER" || user.role === "STAFF")) ||
-      verifyOrderAccessToken(order.orderNumber, token));
-  if (!order || !allowed) notFound();
+  if (!order || !canViewOrder(order, user, token)) notFound();
 
   const addr = order.shippingAddress as unknown as AddressSnapshot;
-  const awaitingPayment = order.status === "PENDING" && order.paymentMethod === "RAZORPAY";
+  const view = paymentView(order);
+  const latest = order.payments[0];
+  const lastRejected = view === "awaiting" ? order.payments.find((p) => p.status === "REJECTED") : undefined;
+  const upi = order.paymentMethod === "UPI" ? getUpiConfig() : null;
+  const awaitingRazorpay = view === "awaiting" && order.paymentMethod === "RAZORPAY";
+  const awaitingUpi = view === "awaiting" && order.paymentMethod === "UPI";
   const guestLink = !user && token;
+  // Celebrate a fresh confirmation once, not on every later visit.
+  // eslint-disable-next-line react-hooks/purity -- server component, evaluated per request
+  const justPaid = view === "paid" && !!latest?.capturedAt && Date.now() - latest.capturedAt.getTime() < 10 * 60_000;
+  const ist = (d: Date) => d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
+
+  const hero = {
+    kicker: placed ? "Order placed!" : "Order details",
+    title:
+      view === "paid"
+        ? "Paid! Your breakfast mixes are on the list."
+        : view === "verifying"
+          ? "Thanks! We're verifying your payment."
+          : awaitingUpi
+            ? placed
+              ? "Nandri! One last step: pay by UPI."
+              : "Your order is waiting for payment."
+            : placed
+              ? "Nandri! Breakfast is on its way to being sorted."
+              : `Order ${order.orderNumber}`,
+    bubble:
+      view === "paid"
+        ? "Payment received. நன்றி! I'll get the pans ready."
+        : view === "verifying"
+          ? "Got your UTR! A real person is matching it with the bank."
+          : awaitingUpi
+            ? "Scan, pay, then tell me the 12-digit UTR!"
+            : placed
+              ? "Woohoo! நன்றி! I'll get the pans ready."
+              : "Here's your order!",
+  };
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6">
-      {placed && <Confetti />}
+      {(placed || justPaid) && <Confetti />}
+      {view === "verifying" && <AutoRefresh seconds={30} />}
       <section className="relative overflow-hidden rounded-[2.5rem] bg-saffron px-6 py-10 text-white sm:px-10">
         <div aria-hidden className="absolute -right-10 -top-10 h-56 w-56 rounded-full bg-turmeric/40 blur-2xl" />
         <div className="relative grid items-center gap-6 sm:grid-cols-[1fr_auto]">
           <div>
-            <p className="font-display text-xl font-bold text-turmeric">{placed ? "Order placed!" : "Order details"}</p>
-            <h1 className="mt-1 font-display text-4xl font-extrabold leading-tight sm:text-5xl">
-              {placed ? "Nandri! Breakfast is on its way to being sorted." : `Order ${order.orderNumber}`}
-            </h1>
+            <p className="font-display text-xl font-bold text-turmeric">{hero.kicker}</p>
+            <h1 className="mt-1 font-display text-4xl font-extrabold leading-tight sm:text-5xl">{hero.title}</h1>
             <p className="mt-3 text-lg text-white/90">
               Order number <b className="rounded-lg bg-white/20 px-2 py-0.5 font-display tracking-wide">{order.orderNumber}</b>
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <OrderStatusBadge status={order.status} className="bg-white text-ink" />
+              <OrderStatusBadge status={view} className="ring-2 ring-white" />
               <span className="text-sm text-white/85">
                 Placed {order.placedAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })} IST
               </span>
@@ -64,14 +99,62 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
           </div>
           <div className="hidden flex-col items-center sm:flex">
             <SpeechBubble tail="bottom" className="max-w-52 text-base">
-              {placed ? "Woohoo! நன்றி! I'll get the pans ready." : "Here's your order!"}
+              {hero.bubble}
             </SpeechBubble>
             <Mascot size={150} animate="wobble" shadow={false} className="mt-3" />
           </div>
         </div>
       </section>
 
-      {awaitingPayment && (
+      {lastRejected && (
+        <p role="alert" className="mt-6 flex items-start gap-3 rounded-2xl bg-chekka/10 p-4 font-semibold text-chekka">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+          <span>
+            We couldn&apos;t match your earlier UTR {lastRejected.utr ? <b>{lastRejected.utr}</b> : null}: {lastRejected.rejectionReason}. Please
+            check the reference in your UPI app, or pay again if the payment didn&apos;t go through.
+          </span>
+        </p>
+      )}
+
+      {awaitingUpi && upi && (
+        <div className="mt-6">
+          <UpiPayPanel upi={upi} orderNumber={order.orderNumber} amountInPaise={order.totalInPaise} token={token} dueAt={order.paymentDueAt} />
+        </div>
+      )}
+      {awaitingUpi && !upi && (
+        <p className="mt-6 rounded-2xl bg-turmeric/25 p-4 font-semibold">
+          UPI payment details are being updated. Please message us on WhatsApp with your order number {order.orderNumber}.
+        </p>
+      )}
+
+      {view === "verifying" && latest && (
+        <section aria-labelledby="verify-h" className="mt-6 flex flex-col gap-5 rounded-[2rem] border-2 border-pongal/40 bg-white p-6 sm:flex-row sm:items-center">
+          <Hourglass className="h-12 w-12 shrink-0 text-pongal" aria-hidden />
+          <div className="flex-1">
+            <h2 id="verify-h" className="font-display text-2xl font-extrabold">Verifying payment</h2>
+            <p className="mt-1 text-ink-soft">
+              We received UTR <b className="font-mono text-ink">{latest.utr}</b> for <b className="text-ink">₹{upiAmount(latest.amountInPaise)}</b>
+              {latest.submittedAt && <> on {ist(latest.submittedAt)} IST</>}. Our team checks every UPI payment against the
+              bank account by hand, so this page will change to <b>Paid</b> once it&apos;s confirmed. No need to pay again.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {view === "paid" && latest && order.paymentMethod === "UPI" && (
+        <section aria-labelledby="paid-h" className="mt-6 flex flex-col gap-5 rounded-[2rem] border-2 border-leaf/40 bg-white p-6 sm:flex-row sm:items-center">
+          <BadgeCheck className="h-12 w-12 shrink-0 text-leaf" aria-hidden />
+          <div className="flex-1">
+            <h2 id="paid-h" className="font-display text-2xl font-extrabold text-leaf-deep">Paid</h2>
+            <p className="mt-1 text-ink-soft">
+              ₹{upiAmount(latest.amountInPaise)} received by UPI (UTR <span className="font-mono">{latest.utr}</span>)
+              {latest.capturedAt && <>, confirmed {ist(latest.capturedAt)} IST</>}. We&apos;ll pack your order next.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {awaitingRazorpay && (
         <section aria-labelledby="pay-h" className="mt-6 flex flex-col gap-4 rounded-[2rem] border-2 border-dashed border-saffron bg-white p-6 sm:flex-row sm:items-center">
           <CreditCard className="h-10 w-10 shrink-0 text-saffron" aria-hidden />
           <div className="flex-1">
@@ -132,7 +215,15 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/or
           <section className="rounded-[2rem] bg-white p-6 ring-1 ring-ink/10">
             <h2 className="font-display text-xl font-extrabold">What happens next?</h2>
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-ink-soft">
-              <li>{awaitingPayment ? "Complete payment (coming soon)." : "We confirm your order."}</li>
+              <li>
+                {awaitingUpi
+                  ? "Pay by UPI and enter the 12-digit UTR above."
+                  : awaitingRazorpay
+                    ? "Complete payment (coming soon)."
+                    : view === "verifying"
+                      ? "We match your UTR with our bank account."
+                      : "We confirm your order."}
+              </li>
               <li>We pack your mixes fresh.</li>
               <li>You get tracking details once it ships.</li>
             </ol>

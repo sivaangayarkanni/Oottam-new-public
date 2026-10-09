@@ -28,6 +28,8 @@ type Props = {
   user: { name: string | null; phone: string | null; email: string | null } | null;
   addresses: SavedAddress[];
   codEnabled: boolean;
+  /** "upi" = direct UPI with manual confirmation; null = no online provider configured yet. */
+  onlineProvider: "upi" | "razorpay" | null;
   idempotencyKey: string;
 };
 
@@ -35,7 +37,7 @@ const section = "rounded-[2rem] bg-white p-6 ring-1 ring-ink/10 sm:p-8";
 const h2 = "flex items-center gap-3 font-display text-2xl font-extrabold";
 const step = "grid h-9 w-9 place-items-center rounded-full bg-saffron font-display text-lg text-white";
 
-export function CheckoutForm({ initialQuote, user, addresses, codEnabled, idempotencyKey }: Props) {
+export function CheckoutForm({ initialQuote, user, addresses, codEnabled, onlineProvider, idempotencyKey }: Props) {
   const [state, formAction, placing] = useActionState<PlaceOrderState, FormData>(placeOrderAction, {});
   const [quoteSrc, setQuoteSrc] = useState({ prop: initialQuote, st: state, quote: initialQuote });
   let quote = quoteSrc.quote;
@@ -230,12 +232,21 @@ export function CheckoutForm({ initialQuote, user, addresses, codEnabled, idempo
             >
               <input type="radio" name="paymentMethod" value="ONLINE" checked={payment === "ONLINE"} onChange={() => setPayment("ONLINE")} className="sr-only" />
               <CreditCard className="mt-0.5 h-6 w-6 shrink-0 text-saffron" aria-hidden />
-              <span>
-                <span className="block font-bold">Pay online · UPI, cards, netbanking</span>
-                <span className="mt-1 block text-sm text-ink-soft">
-                  Online payment connects in the next step. We&apos;ll save your order as <b>awaiting payment</b> and hold your packs for a short while.
+              {onlineProvider === "upi" ? (
+                <span>
+                  <span className="block font-bold">Pay by UPI · Google Pay, PhonePe, Paytm or any UPI app</span>
+                  <span className="mt-1 block text-sm text-ink-soft">
+                    After you place the order we&apos;ll show a QR code for the exact amount. Pay, then enter the 12-digit UTR so we can match your payment.
+                  </span>
                 </span>
-              </span>
+              ) : (
+                <span>
+                  <span className="block font-bold">Pay online · UPI, cards, netbanking</span>
+                  <span className="mt-1 block text-sm text-ink-soft">
+                    Online payment connects in the next step. We&apos;ll save your order as <b>awaiting payment</b> and hold your packs for a short while.
+                  </span>
+                </span>
+              )}
             </label>
             {codEnabled && (
               <label
